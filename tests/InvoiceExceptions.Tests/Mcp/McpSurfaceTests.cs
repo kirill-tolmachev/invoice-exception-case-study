@@ -13,11 +13,11 @@ public sealed class McpSurfaceTests
     private static readonly string[] ExpectedTools =
     [
         "get_case_context", "get_history", "get_questions", "get_result", "list_cases",
-        "open_case", "propose_match", "run_check", "submit_document_facts",
+        "open_case", "propose_match", "read_document", "run_check", "submit_document_facts",
     ];
 
     [Fact]
-    public async Task The_agent_sees_exactly_the_nine_tools_and_none_confirms_approves_or_decides()
+    public async Task The_agent_sees_exactly_the_published_tools_and_none_confirms_approves_or_decides()
     {
         using var app = new AppFixture();
         await using var agent = await app.ConnectAgentAsync();
