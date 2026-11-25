@@ -1,0 +1,231 @@
+{
+  "schema_version": "1.0",
+  "adapter": "dotnet artifacts/cli/InvoiceExceptions.Cli.dll",
+  "dataset": "dataset",
+  "summary": {
+    "cases_passed": 10,
+    "cases_total": 10,
+    "steps_passed": 12,
+    "steps_total": 12,
+    "critical_false_clear": 0,
+    "over_escalation": 0,
+    "under_escalation": 0,
+    "adapter_failures": 0
+  },
+  "cases": [
+    {
+      "case_id": "case-001",
+      "passed": true,
+      "steps": [
+        {
+          "step": 1,
+          "passed": true,
+          "adapter_failure": null,
+          "differences": [],
+          "expected_outcome": "clear",
+          "actual_outcome": "clear",
+          "critical_false_clear": false,
+          "escalation": null,
+          "seconds": 0.484,
+          "stderr_tail": ""
+        }
+      ],
+      "state_dir": null
+    },
+    {
+      "case_id": "case-002",
+      "passed": true,
+      "steps": [
+        {
+          "step": 1,
+          "passed": true,
+          "adapter_failure": null,
+          "differences": [],
+          "expected_outcome": "clear",
+          "actual_outcome": "clear",
+          "critical_false_clear": false,
+          "escalation": null,
+          "seconds": 0.469,
+          "stderr_tail": ""
+        }
+      ],
+      "state_dir": null
+    },
+    {
+      "case_id": "case-003",
+      "passed": true,
+      "steps": [
+        {
+          "step": 1,
+          "passed": true,
+          "adapter_failure": null,
+          "differences": [],
+          "expected_outcome": "blocked",
+          "actual_outcome": "blocked",
+          "critical_false_clear": false,
+          "escalation": null,
+          "seconds": 0.484,
+          "stderr_tail": ""
+        }
+      ],
+      "state_dir": null
+    },
+    {
+      "case_id": "case-004",
+      "passed": true,
+      "steps": [
+        {
+          "step": 1,
+          "passed": true,
+          "adapter_failure": null,
+          "differences": [],
+          "expected_outcome": "needs_review",
+          "actual_outcome": "needs_review",
+          "critical_false_clear": false,
+          "escalation": null,
+          "seconds": 0.469,
+          "stderr_tail": ""
+        }
+      ],
+      "state_dir": null
+    },
+    {
+      "case_id": "case-005",
+      "passed": true,
+      "steps": [
+        {
+          "step": 1,
+          "passed": true,
+          "adapter_failure": null,
+          "differences": [],
+          "expected_outcome": "blocked",
+          "actual_outcome": "blocked",
+          "critical_false_clear": false,
+          "escalation": null,
+          "seconds": 0.469,
+          "stderr_tail": ""
+        }
+      ],
+      "state_dir": null
+    },
+    {
+      "case_id": "case-006",
+      "passed": true,
+      "steps": [
+        {
+          "step": 1,
+          "passed": true,
+          "adapter_failure": null,
+          "differences": [],
+          "expected_outcome": "blocked",
+          "actual_outcome": "blocked",
+          "critical_false_clear": false,
+          "escalation": null,
+          "seconds": 0.515,
+          "stderr_tail": ""
+        }
+      ],
+      "state_dir": null
+    },
+    {
+      "case_id": "case-007",
+      "passed": true,
+      "steps": [
+        {
+          "step": 1,
+          "passed": true,
+          "adapter_failure": null,
+          "differences": [],
+          "expected_outcome": "blocked",
+          "actual_outcome": "blocked",
+          "critical_false_clear": false,
+          "escalation": null,
+          "seconds": 0.531,
+          "stderr_tail": ""
+        }
+      ],
+      "state_dir": null
+    },
+    {
+      "case_id": "case-008",
+      "passed": true,
+      "steps": [
+        {
+          "step": 1,
+          "passed": true,
+          "adapter_failure": null,
+          "differences": [],
+          "expected_outcome": "duplicate",
+          "actual_outcome": "duplicate",
+          "critical_false_clear": false,
+          "escalation": null,
+          "seconds": 0.453,
+          "stderr_tail": ""
+        }
+      ],
+      "state_dir": null
+    },
+    {
+      "case_id": "case-009",
+      "passed": true,
+      "steps": [
+        {
+          "step": 1,
+          "passed": true,
+          "adapter_failure": null,
+          "differences": [],
+          "expected_outcome": "blocked",
+          "actual_outcome": "blocked",
+          "critical_false_clear": false,
+          "escalation": null,
+          "seconds": 0.469,
+          "stderr_tail": ""
+        }
+      ],
+      "state_dir": null
+    },
+    {
+      "case_id": "case-010",
+      "passed": true,
+      "steps": [
+        {
+          "step": 1,
+          "passed": true,
+          "adapter_failure": null,
+          "differences": [],
+          "expected_outcome": "needs_information",
+          "actual_outcome": "needs_information",
+          "critical_false_clear": false,
+          "escalation": null,
+          "seconds": 0.469,
+          "stderr_tail": ""
+        },
+        {
+          "step": 2,
+          "passed": true,
+          "adapter_failure": null,
+          "differences": [],
+          "expected_outcome": "needs_review",
+          "actual_outcome": "needs_review",
+          "critical_false_clear": false,
+          "escalation": null,
+          "seconds": 0.406,
+          "stderr_tail": ""
+        },
+        {
+          "step": 3,
+          "passed": true,
+          "adapter_failure": null,
+          "differences": [],
+          "expected_outcome": "clear",
+          "actual_outcome": "clear",
+          "critical_false_clear": false,
+          "escalation": null,
+          "seconds": 0.422,
+          "stderr_tail": ""
+        }
+      ],
+      "state_dir": null
+    }
+  ]
+}

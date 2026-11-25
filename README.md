@@ -1,3 +1,282 @@
+# Invoice Exception Agent — solution
+
+This is a fork of the case study. The first part of this README describes the solution; the original assignment
+text follows unchanged [below](#original-assignment).
+
+| | |
+|---|---|
+| Acceptance runner, open cases | **10/10 cases, 12/12 steps**, 0 false clears, 0 over- or under-escalation — [report](submission/eval-report.txt) |
+| Automated tests (`dotnet test`) | **456**: 273 on rules and invariants, 183 on the application, storage, MCP and the case page |
+| Agent demonstration, cases 004 and 010 | [transcripts with tool-call logs](submission/demo/) |
+| Stack | C# / .NET 10, ASP.NET Core Razor Pages, MCP over Streamable HTTP, SQLite |
+
+## Run it
+
+**Requirements:** .NET SDK 10. Python 3.10+ only for the provided runner and the helper scripts. Claude Code or Codex for the agent part.
+
+### 1. Start the application — one command, from the repository root
+
+```sh
+dotnet run --project src/InvoiceExceptions.Web
+```
+
+| What | Where |
+|---|---|
+| Case list | <http://localhost:5080/> |
+| **Case page** | `http://localhost:5080/cases/<case-id>`, e.g. <http://localhost:5080/cases/case-010> |
+| **MCP endpoint** (Streamable HTTP) | `http://localhost:5080/mcp` |
+| Stored facts and conclusions as JSON, read-only | `/api/cases/<case-id>/documents/<document-id>/facts` and `/result?revision=N` |
+| Data | `./data/invoice-exceptions.db` (SQLite). It survives restarts; delete the folder to start empty. |
+
+The port is set in `src/InvoiceExceptions.Web/appsettings.json` (`Urls`). The data and dataset folders can be moved with
+`--InvoiceExceptions:DataDirectory=<dir>` and `--InvoiceExceptions:DatasetDirectory=<dir>` (also as environment variables).
+
+### 2. Connect the agent
+
+| Client | Configuration |
+|---|---|
+| Claude Code | The repository contains [`.mcp.json`](.mcp.json): start `claude` in the repository root and approve the `invoice-exceptions` server. Or register it explicitly: `claude mcp add --transport http invoice-exceptions http://localhost:5080/mcp` |
+| Codex | `codex mcp add invoice-exceptions --url http://localhost:5080/mcp` |
+
+Then ask, for example: *"Check the invoice in case 010. If the purchase order cannot be determined, propose a match and
+explain what I need to confirm."*
+
+**PDF paths.** The application runs natively, not in a container, so the paths are ordinary local paths:
+`dataset/cases/<case-id>/documents/document-001.pdf`. `open_case` returns the absolute path of every input document, and
+`read_document` returns the document's text layer page by page, so an agent without file access can work too.
+To check a new case, add its folder under `dataset/cases/` (the layout of `dataset/README.md`); the application reads
+`case.json`, `context/` and `documents/` from it and never opens `steps/` or `expected/`.
+
+### 3. Acceptance runner — exact adapter command
+
+```sh
+dotnet publish src/InvoiceExceptions.Cli -c Release -o artifacts/cli
+python -m pip install -r requirements.txt
+python tools/run_evals.py --adapter "dotnet artifacts/cli/InvoiceExceptions.Cli.dll"
+```
+
+### 4. Tests and the recorded demonstration
+
+```sh
+dotnet test
+python scripts/run_agent_demo.py --case 004     # needs the application running and `claude` signed in
+python scripts/run_agent_demo.py --case 010     # pauses until a person confirms the proposal on the case page
+```
+
+## How it is built
+
+```mermaid
+flowchart LR
+    Agent[Agent: Claude Code / Codex] -->|facts, proposals| MCP["MCP tools (/mcp)"]
+    Human[Reviewer] -->|confirms a proposal| Page["Case page (/cases/id)"]
+    Runner[run_evals.py] -->|step JSON| CLI[CLI adapter]
+    MCP --> Apply
+    Page --> Apply
+    CLI --> Apply
+    subgraph Application
+        Apply["CaseService.Apply<br/>validate → new input revision → evaluate → append"]
+    end
+    Apply -->|facts, context, proposals| Engine["Domain: InvoiceEvaluator<br/>pure function, rules R1–R6"]
+    Engine -->|checks, calculations, decision| Apply
+    Apply --> Store[("SQLite, append-only")]
+    Store --> Page
+    Store --> MCP
+```
+
+| Project | What it is |
+|---|---|
+| `src/InvoiceExceptions.Domain` | The rules engine of core-v1. No dependencies, no I/O, no clock. |
+| `src/InvoiceExceptions.Application` | Use cases (`CaseService`), validation against the published schemas, the read model, the runner adapter logic, ports. |
+| `src/InvoiceExceptions.Infrastructure` | SQLite store (hand-written SQL), dataset catalog, PDF text layer (PdfPig). |
+| `src/InvoiceExceptions.Web` | One process: the case page (Razor Pages) and the MCP endpoint. |
+| `src/InvoiceExceptions.Cli` | The thin adapter for `tools/run_evals.py`. |
+| `tests/` | `InvoiceExceptions.Domain.Tests` (rules, invariants, policy pin) and `InvoiceExceptions.Tests` (everything else). |
+
+### Design decisions
+
+1. **The decision is made by a pure function.** `InvoiceEvaluator.Evaluate(facts, context, proposals)` reads no file, no
+   clock and no caller identity, so the same input always gives the same result and an agent cannot talk it into anything.
+   Each rule group is one small file. The set of checks is fixed (7 per document, 5 per line) and is produced in the
+   policy's evaluation order. A `CheckResult` can only be built through factories that make the contract's invariants
+   unbreakable: a severity exists only on a failure and is a property of the check, `depends_on` exists only on an
+   unknown, a root unknown is possible only for a check that has a required fact.
+2. **One write path and one contract for every channel.** The CLI adapter, each MCP tool and the confirmation form reduce
+   their request to the published step-input shape and call `CaseService.Apply`. Validation, ordering (context → document
+   → proposals → confirmations) and revisioning are therefore identical no matter who is calling.
+3. **A stored conclusion is never stale and history is never rewritten.** Every accepted change is one new input revision,
+   and the documents it can affect are re-evaluated in the same SQLite transaction. A conclusion is stored under
+   (document, input revision) with the context and policy version it was drawn from. Every table is append-only, and the
+   database enforces it with triggers that abort any `UPDATE` or `DELETE`. A duplicate is recorded as an evaluation with
+   no assessment at all.
+4. **The agent's boundary is structural, not a matter of prompt wording.**
+   - The MCP surface has no operation that confirms a proposal or sets an outcome.
+   - Independently of that, `Apply` rejects a confirmation that arrives through the agent channel.
+   - A confirmation exists only as a form post on the case page (antiforgery-protected) and records the reviewer's name.
+   - A proposal may only fill a gap: one that contradicts a deterministic match is rejected at registration.
+   - Document text is handed to the agent labelled as data. The facts contract has no field an "approval" could travel
+     in; the note in case 004's PDF can at most be copied into `payment_terms`, which no rule reads. A test does exactly that.
+5. **The published schemas are the format contract.** They are embedded unchanged and evaluated as JSON Schema 2020-12;
+   no shape rule is repeated in code. `submit_document_facts` advertises the extraction schema itself as its input schema.
+   A rejection names the field by JSON Pointer and says what was expected, taken from the schema's own description.
+6. **Decimal arithmetic only.** `System.Decimal` (base 10) in the engine, strings on the wire, `ROUND_HALF_UP` to two
+   places. A number that fits the schema pattern but exceeds decimal's range is a validation error, not a crash.
+7. **Facts carry their sources, and the sources are checked.** Facts are stored as registered, with document id, page and
+   verbatim excerpt. The application compares every excerpt with the text layer of the PDF the facts were read from and
+   reports the result to the agent and, per excerpt, to the reviewer. It is a quality signal and never changes a
+   conclusion: the rules work on the facts as registered.
+8. **SQLite with hand-written SQL.** Payloads (context, facts, results) are kept verbatim as JSON inside a small
+   relational skeleton of revisions, documents, proposals, confirmations, evaluations and assessments. No ORM: the
+   adapter starts a process per step, and there is nothing hidden to explain.
+
+### Where a rule lives
+
+| Rule | Code |
+|---|---|
+| R1 parties and currency | `Domain/Rules/Parties.cs` |
+| R2 order and line matching, proposals | `Domain/Rules/OrderMatching.cs`, `Domain/ProposalRules.cs` |
+| R3 quantities | `Domain/Rules/Quantities.cs` |
+| R4 price and arithmetic | `Domain/Rules/Arithmetic.cs`, `Domain/Policy/Money.cs` |
+| R5 bank account | `Domain/Rules/BankAccount.cs` |
+| R6 duplicates and conflicts | `Domain/Rules/Duplicates.cs`, `Domain/Model/ComparableFacts.cs` |
+| Decision priority, questions | `Domain/Rules/DecisionPolicy.cs` |
+| Tolerance, scales, severities, check sets, question texts | `Domain/Policy/CoreV1.cs` — pinned to `dataset/policies/core-v1.json` by `PolicyPinTests` |
+| Normalization | `Domain/Policy/Normalize.cs` |
+
+### Interpretations where the rules are silent or ambiguous
+
+Where `BUSINESS_RULES.md` and `core-v1.json` differ in detail, the JSON's ordered `outcomes` are followed. The choices
+below are mine; each is pinned by a test in `SpecSilentChoicesTests` and each errs towards escalation rather than a false clear.
+
+| Topic | Choice |
+|---|---|
+| "exactly one order line matches …, not taken by another document line" | A line matches deterministically when exactly one order line matches it by SKU **or** alias **or** description. If several document lines point at the same single order line, none of them is matched. Order lines taken by other document lines are not removed from a line's candidates first (the stricter reading). |
+| Units of measure | Compared exactly as written; the policy defines no normalization for them. |
+| Receipts and history | Attributed to an order line by order id **and** order line id. |
+| A PO reference or a supplier registration id that matches more than one entry | Treated as not found. |
+| Several proposals for one document | The latest human-confirmed one selects the order, otherwise the latest pending one. For lines: deterministic, then confirmed, then pending; an order line is never given to two document lines. |
+| R6 with several earlier documents under the same business key | An equal one makes a duplicate; otherwise a conflict with the first match, invoice history before earlier documents of the case. |
+| Facts submitted again for the same `document_id` | A correction: a new revision and a new conclusion, not a duplicate or conflict of itself. |
+| Root unknowns | One question per check instance, e.g. one `goods_receipts` question per line. |
+| A line whose unit differs from the order line | The three dependent checks are `not_applicable`; the quantity figures are still reported, because the policy's `null_when` lists only an unresolved line and unavailable receipts. |
+| `input_revision` | One per accepted change. The CLI applies a whole step as one change. |
+| Which documents a change re-evaluates | A new context: all. A document: itself and those imported after it. A proposal or confirmation: its document. Importing a duplicate therefore adds nothing to the original's history. |
+| A step that would leave the case without any document | Rejected as a validation error: the runner contract needs a document to report on. |
+
+### MCP tools
+
+| Tool | Purpose |
+|---|---|
+| `list_cases` | Cases in the dataset and cases already opened. |
+| `open_case` | Loads the case context into the application; returns the input documents with PDF path and hash. Idempotent; a changed context becomes a new revision. |
+| `read_document` | The text layer of a PDF, page by page, labelled as untrusted content. |
+| `get_case_context` | The stored context (optionally one section). |
+| `submit_document_facts` | Registers extracted facts. Input schema = the published extraction schema. Returns the import disposition and how well the evidence is backed by the PDF. |
+| `propose_match` | Registers a proposed order and line matches with a rationale. Decides nothing. |
+| `run_check` | The conclusion for the document at the current input revision: decision, checks with explanations, calculations, questions. |
+| `get_result` | A stored conclusion, current or of an earlier revision. |
+| `get_questions` | Open questions and proposals awaiting confirmation. |
+| `get_history` | Input revisions (who, which channel, what), conclusions per document, proposals and confirmations. |
+
+There is deliberately no tool to confirm, approve or set an outcome. `run_check` does not compute anything on demand:
+the application computes and stores the conclusion whenever the input changes, and this tool returns the one that
+belongs to the current revision.
+
+## What was verified, and how
+
+| Check | Result |
+|---|---|
+| `tools/run_evals.py` on the open cases | 10/10 cases, 12/12 steps; about 0.5 s per step. [Report](submission/eval-report.txt), [JSON](submission/eval-report.json). |
+| Rules and invariants (273 tests) | Derived from `BUSINESS_RULES.md` and `core-v1.json` in a separate agent session that was not shown the rule code: every rule outcome, rounding ties, tolerance boundaries, and 13 invariants over 1,500 generated inputs (fixed check set, severity and `depends_on` rules, one question per root unknown, determinism, line-order independence). |
+| Application, storage, MCP, page (183 tests) | The dataset replayed in-process against the expected results and the output schema; rejected input leaves no trace; history is never rewritten; new context → new revision and conclusion; duplicate and conflict inside one case; restart; the agent cannot confirm; the MCP flows of cases 004, 010 and 008; the confirmation form with and without antiforgery token; HTML encoding of untrusted text; evidence verification against all 12 PDFs. |
+| Case page in a browser | Case 010: proposal shown with its consequences, confirmed by name, conclusion recomputed to `clear`, earlier conclusions still viewable. |
+| Agent end to end (cases 004 and 010) | See [submission/demo](submission/demo/): transcript, tool-call log, client and model, and a comparison of what the application stored with the reference extraction and expected result. |
+
+One finding of that testing is worth naming: my first version re-evaluated every document of a case on every change, so
+importing a duplicate added a fresh conclusion to the original and pointed at it. A requirement-derived test caught it
+("no new conclusion is created, history does not change"); the fix is the "which documents a change re-evaluates" rule above.
+
+## Simplifications and known limitations
+
+- **No authentication.** The reviewer types their name. The boundary between agent and human is enforced at the
+  application's surfaces (MCP, page, use case). An agent with operating-system access to the data directory or to the
+  CLI adapter is outside what an application can defend; in production the agent runs in a separate trust zone.
+- **No retries or idempotency keys, no concurrency handling beyond optimistic revision numbers.** Of two simultaneous
+  writers one wins and the other gets a conflict. Calling a mutating tool twice creates two revisions.
+- **The human interface confirms; it does not reject or comment.** A reviewer who disagrees leaves the proposal unconfirmed.
+- **Earlier conclusions are shown next to the latest facts and context.** Every version is stored, but the read model
+  exposes only the latest facts and context; the page warns when they are newer than the conclusion being viewed.
+- **Evidence verification needs a text layer** (no OCR) and is advisory.
+- **The context version of a case opened through MCP is derived from the content of its context files** (`ctx-…`),
+  because those files carry no version; the runner supplies its own (`CTX-…`).
+- **Conclusions are bound to `policy_version`, not to a build of the engine.** A changed rule should ship as a new policy
+  version with re-evaluation; that mechanism is not built.
+- **Case-folding approximates Unicode full case folding** (upper-then-lower plus `ß`); .NET has no built-in equivalent.
+- **Scope of core-v1 as given**: ordinary EUR invoices, one order per document, one order line per invoice line.
+  `as_of` is stored and not used by any rule. Case ids follow the schema's `case-NNN`.
+- `JsonSchema.Net` is pinned to 8.0.5, the last MIT-licensed release.
+
+## Time spent
+
+TIME_SPENT_PLACEHOLDER
+
+## Answers to the three questions
+
+### Which manual work does this improve, and how would the benefit be verified?
+
+The work is the pre-payment check of every supplier invoice: reading the PDF, finding the order and the receipts,
+re-adding the arithmetic, checking that the supplier and the bank account are ours to pay, and looking for an earlier
+copy. With this system a clean invoice needs no person at all, and an exception arrives already diagnosed — which check
+failed, with the figures and the place in the document — so the clerk's work shrinks to the decision itself.
+
+**Measured in this exercise** (correctness only, on synthetic data):
+
+- 10/10 open cases and 12/12 steps equal to the reference; no false clear, no over- or under-escalation.
+- Agent runs on cases 004 and 010: extracted values and stored conclusions compared with the reference files — see the check files in [submission/demo](submission/demo/).
+- About half a second per adapter step.
+
+**Expected, not measured** — these need production data, first in shadow mode next to the manual process:
+
+| Indicator | How to measure |
+|---|---|
+| Touchless rate: share of invoices that end `clear` with no human action | System outcome per invoice, against today's 0 %. |
+| Clerk handling time per invoice, clean and exceptional | Time study before and after, or timestamps of the exception queue. |
+| False clears: errors found after `clear` (double payment, wrong IBAN, over-invoicing) | Sampled audit of cleared invoices; post-payment recoveries. Target zero. |
+| Over-escalation: flagged invoices a clerk passes unchanged | Reviewer outcome per `needs_review` / `blocked`. |
+| Extraction accuracy per field; share of excerpts verified in the PDF | Audited sample against the registered facts; the evidence check already in the application. |
+| Share of proposals confirmed versus left unconfirmed | Proposal and confirmation history. |
+| Late-payment fees and early-payment discounts | Accounting figures per period. |
+
+### Which dependencies must be clarified before rollout, and what are the risks?
+
+- **Procurement.** Discipline of PO references on invoices; who maintains SKUs and explicit aliases; units of measure;
+  what "open" and "closed" mean and how order amendments reach the context; who owns the price tolerance (an absolute
+  0.01 is a rule of this exercise, not a policy).
+- **Supplier directory.** Who approves a bank account and how a change is verified — the application never learns an
+  IBAN from a document, so that process stays outside it and becomes the single point a fraud has to pass; uniqueness of
+  registration ids; how fresh the directory is.
+- **Receiving.** How quickly receipts are posted (a late receipt blocks a correct invoice); partial deliveries, returns
+  and corrections; units; how reliable the "data unavailable" signal is; services, which have no receipt.
+- **Accounting.** When an invoice counts as "counted" and how soon that reaches the history (until then only documents
+  of the same case protect against a duplicate); number normalization across systems; credit notes; where the outcome
+  goes (payment block or release in the ERP); retention of evidence and conclusions; who may confirm what.
+- **Risks and process changes.** Automation bias — reviewers confirming proposals unread — which is why the page shows
+  the consequences first and records a name, and why sampled audits are needed. Extraction errors that are plausible
+  enough to pass. Instructions planted in documents. Stale context: a conclusion is only as current as its snapshot.
+  Segregation of duties: whoever confirms matches must not maintain supplier bank data. The clerk's job moves from
+  keying data to handling exceptions, which needs an owner for the queue, service levels and training.
+
+### Three next improvements, in order
+
+| # | Improvement | Expected benefit | Depends on | How to verify |
+|---|---|---|---|---|
+| 1 | **An authenticated human channel with roles**: reviewer identity from the company's identity provider instead of a typed name, authorization limits, second approval above a threshold. | Confirmations become attributable; the agent/human boundary holds against an agent that has network access to the page. A precondition for any real use. | Identity provider; the approval matrix from accounting. | Security tests that agent credentials cannot reach the confirmation; review of the audit trail. |
+| 2 | **Live context with freshness guarantees**: connectors for orders, receipts, history and supplier master data with snapshot timestamps; re-evaluation on context change events; idempotent commands for retries. | Removes manual context loading and stale-data errors, closes the duplicate window between systems, makes touchless processing possible. | Owners of the procurement, receiving and accounting systems; API access. | Shadow run on live invoices against clerks' decisions; share of `needs_information` caused by late data; replay tests. |
+| 3 | **An extraction quality loop, then wider policy coverage**: per-field accuracy from reviewer corrections, OCR for scans, evidence verification as a gate where a text layer exists; then core-v2 (delivery and discount lines, credit notes, tolerances per category) as a versioned policy with re-evaluation. | A higher touchless rate and fewer reviews. | A labelled sample from accounting; rule owners in finance. | The eval set grown with the new cases through the same runner; touchless rate and over-escalation before and after. |
+
+---
+
+<a id="original-assignment"></a>
+
 # Invoice Exception Agent
 
 Тестовое задание на позицию **Senior Software Engineer**. На выполнение — **до 16 часов, два рабочих дня**. Язык, хранилище и внутренняя архитектура — на ваш выбор. Использование AI coding agents приветствуется.
