@@ -61,7 +61,8 @@ public static class FactsReviewer
         var withEvidence = facts.Evidence.Select(e => e.FieldPath).ToHashSet(StringComparer.Ordinal);
         var declaredMissing = facts.MissingFields.Select(m => m.FieldPath).ToHashSet(StringComparer.Ordinal);
         var values = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
-        Flatten(JsonSerializer.SerializeToElement(facts, WireJson.Options), string.Empty, values);
+        var labels = new HashSet<string>(StringComparer.Ordinal);
+        Flatten(JsonSerializer.SerializeToElement(facts, WireJson.Options), string.Empty, values, labels);
 
         foreach (var (path, value) in values)
         {
@@ -83,7 +84,7 @@ public static class FactsReviewer
             notes.Add(new(path, "The field is listed in missing_fields but has a value."));
         }
 
-        foreach (var path in withEvidence.Concat(declaredMissing).Distinct().Where(path => !values.ContainsKey(path)))
+        foreach (var path in withEvidence.Concat(declaredMissing).Distinct().Where(path => !values.ContainsKey(path) && !labels.Contains(path)))
         {
             notes.Add(new(path, "This path does not point at a fact of the document."));
         }
@@ -113,7 +114,9 @@ public static class FactsReviewer
         return text.Contains(Squeeze(evidence.Excerpt), StringComparison.Ordinal) ? EvidenceStatus.Found : EvidenceStatus.NotFound;
     }
 
-    private static void Flatten(JsonElement element, string path, Dictionary<string, JsonElement> values)
+    /// <param name="values">Every printed fact by its JSON Pointer.</param>
+    /// <param name="labels">Fields that exist but are our own labels rather than printed facts; they need no source.</param>
+    private static void Flatten(JsonElement element, string path, Dictionary<string, JsonElement> values, HashSet<string> labels)
     {
         switch (element.ValueKind)
         {
@@ -128,10 +131,11 @@ public static class FactsReviewer
                     // A line id is our own label for the line, not something the document prints.
                     if (property.Name == "line_id")
                     {
+                        labels.Add($"{path}/{property.Name}");
                         continue;
                     }
 
-                    Flatten(property.Value, $"{path}/{property.Name}", values);
+                    Flatten(property.Value, $"{path}/{property.Name}", values, labels);
                 }
 
                 break;
@@ -139,7 +143,7 @@ public static class FactsReviewer
                 var index = 0;
                 foreach (var item in element.EnumerateArray())
                 {
-                    Flatten(item, $"{path}/{index++}", values);
+                    Flatten(item, $"{path}/{index++}", values, labels);
                 }
 
                 break;

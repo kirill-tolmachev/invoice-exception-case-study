@@ -237,7 +237,7 @@ Two findings of that testing are worth naming, because both changed the design:
 
 ## Time spent
 
-TIME_SPENT_PLACEHOLDER
+About **1.5 hours** of wall-clock time in one AI-assisted session (Claude Code in the desktop app, with Opus subagents for the SQLite store, the case page and two independent test suites), well inside the 16 hours allowed. My own time to review the result, re-run the checks and prepare for the interview comes on top of that.
 
 ## Answers to the three questions
 
