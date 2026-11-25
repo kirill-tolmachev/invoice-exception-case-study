@@ -1,0 +1,94 @@
+@page
+@model IndexModel
+
+<h1>Cases</h1>
+
+<section>
+    <h2>Opened in the application</h2>
+    @if (Model.Opened.Count == 0)
+    {
+        <p class="empty">No case has been opened yet.</p>
+    }
+    else
+    {
+        <table class="data cases">
+            <thead>
+                <tr>
+                    <th>Case</th>
+                    <th class="num">Input revision</th>
+                    <th>Context version</th>
+                    <th>Document</th>
+                    <th>Current outcome</th>
+                    <th class="num">Proposals awaiting confirmation</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var view in Model.Opened)
+                {
+                    var url = "/cases/" + Uri.EscapeDataString(view.CaseId);
+                    var span = Math.Max(1, view.Documents.Count);
+                    <tr data-case="@view.CaseId">
+                        <td rowspan="@span"><a href="@url">@view.CaseId</a></td>
+                        <td rowspan="@span" class="num">@view.InputRevision</td>
+                        <td rowspan="@span">@Display.Value(view.ContextVersion, "no context")</td>
+                        @if (view.Documents.Count == 0)
+                        {
+                            <td colspan="3"><span class="unknown">no document submitted yet</span></td>
+                        }
+                        else
+                        {
+                            @DocumentCells(view.Documents[0])
+                        }
+                    </tr>
+                    @foreach (var document in view.Documents.Skip(1))
+                    {
+                        <tr>@DocumentCells(document)</tr>
+                    }
+                }
+            </tbody>
+        </table>
+    }
+</section>
+
+<section>
+    <h2>In the dataset, not opened yet</h2>
+    @if (Model.NotOpened.Count == 0)
+    {
+        <p class="empty">Every dataset case is open.</p>
+    }
+    else
+    {
+        <p class="hint">The agent opens a case with the <code>open_case</code> MCP tool (endpoint <code>/mcp</code>); it then appears above.</p>
+        <ul class="plain-list">
+            @foreach (var id in Model.NotOpened)
+            {
+                <li class="mono">@id</li>
+            }
+        </ul>
+    }
+</section>
+
+@functions {
+    private Microsoft.AspNetCore.Html.IHtmlContent DocumentCells(DocumentView document)
+    {
+        var result = document.Current.Result;
+        var awaiting = document.Proposals.Count(p => p.Confirmation is null);
+        var builder = new Microsoft.AspNetCore.Html.HtmlContentBuilder();
+        builder.AppendHtml("<td class=\"mono\">").Append(document.DocumentId).AppendHtml("</td><td>");
+        if (result.ImportDisposition == "duplicate")
+        {
+            builder.AppendHtml(Display.Badge("Duplicate", "decision-duplicate")).Append(" of " + result.OriginalDocumentId);
+        }
+        else
+        {
+            builder.AppendHtml(Display.Decision(result.Decision));
+            if (result.ImportDisposition == "conflict")
+            {
+                builder.Append(" (conflict with " + result.OriginalDocumentId + ")");
+            }
+        }
+
+        builder.AppendHtml("</td><td class=\"num\">").Append(awaiting.ToString(System.Globalization.CultureInfo.InvariantCulture)).AppendHtml("</td>");
+        return builder;
+    }
+}
