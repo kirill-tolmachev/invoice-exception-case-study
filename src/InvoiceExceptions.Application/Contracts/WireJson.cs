@@ -4,7 +4,7 @@ using System.Text.Json;
 namespace InvoiceExceptions.Application.Contracts;
 
 /// <summary>The one JSON convention of the solution: snake_case names, nulls written explicitly, decimals as strings.</summary>
-public static class Json
+public static class WireJson
 {
     public static readonly JsonSerializerOptions Options = new()
     {
