@@ -8,3 +8,13 @@ node_modules/
 results/
 review-private/
 reviewer-private/
+
+# .NET
+bin/
+obj/
+artifacts/
+*.user
+.vs/
+
+# Local application data (SQLite)
+data/

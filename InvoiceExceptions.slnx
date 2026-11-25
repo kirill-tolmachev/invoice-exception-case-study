@@ -1,0 +1,13 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/InvoiceExceptions.Application/InvoiceExceptions.Application.csproj" />
+    <Project Path="src/InvoiceExceptions.Cli/InvoiceExceptions.Cli.csproj" />
+    <Project Path="src/InvoiceExceptions.Domain/InvoiceExceptions.Domain.csproj" />
+    <Project Path="src/InvoiceExceptions.Infrastructure/InvoiceExceptions.Infrastructure.csproj" />
+    <Project Path="src/InvoiceExceptions.Web/InvoiceExceptions.Web.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/InvoiceExceptions.Domain.Tests/InvoiceExceptions.Domain.Tests.csproj" />
+    <Project Path="tests/InvoiceExceptions.Tests/InvoiceExceptions.Tests.csproj" />
+  </Folder>
+</Solution>

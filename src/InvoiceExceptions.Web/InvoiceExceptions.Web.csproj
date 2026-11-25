@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <ItemGroup>
+    <ProjectReference Include="..\InvoiceExceptions.Application\InvoiceExceptions.Application.csproj" />
+    <ProjectReference Include="..\InvoiceExceptions.Infrastructure\InvoiceExceptions.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="ModelContextProtocol.AspNetCore" />
+  </ItemGroup>
+
+</Project>

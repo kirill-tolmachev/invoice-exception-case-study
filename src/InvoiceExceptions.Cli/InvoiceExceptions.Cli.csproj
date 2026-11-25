@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <!-- One process per runner step: skip tiered JIT warm-up heuristics that only pay off in long-lived processes. -->
+    <TieredPGO>false</TieredPGO>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\InvoiceExceptions.Application\InvoiceExceptions.Application.csproj" />
+    <ProjectReference Include="..\InvoiceExceptions.Infrastructure\InvoiceExceptions.Infrastructure.csproj" />
+  </ItemGroup>
+
+</Project>

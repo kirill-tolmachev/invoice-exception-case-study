@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\InvoiceExceptions.Domain\InvoiceExceptions.Domain.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="JsonSchema.Net" />
+  </ItemGroup>
+
+  <!-- The published schemas and policy are the contract: they are embedded as-is, never copied into code. -->
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\dataset\schemas\*.schema.json" LinkBase="Schemas" LogicalName="schemas/%(Filename)%(Extension)" />
+    <EmbeddedResource Include="..\..\dataset\policies\core-v1.json" LinkBase="Policies" LogicalName="policies/core-v1.json" />
+  </ItemGroup>
+
+</Project>
