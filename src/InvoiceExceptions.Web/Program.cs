@@ -6,11 +6,13 @@ using InvoiceExceptions.Infrastructure.Catalog;
 using InvoiceExceptions.Infrastructure.Documents;
 using InvoiceExceptions.Infrastructure.Storage;
 using InvoiceExceptions.Web;
+using InvoiceExceptions.Web.Api;
 using InvoiceExceptions.Web.Mcp;
 
 // One process, two doors onto the same use cases:
 //   /cases/{id}  - the case page, for the person who reviews and confirms;
 //   /mcp         - the MCP endpoint (Streamable HTTP), for the agent.
+// Plus /api/cases/..., read-only JSON of the stored facts and conclusions.
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -32,6 +34,7 @@ app.Logger.LogInformation("Dataset directory: {DatasetDirectory}", settings.Data
 
 app.UseStaticFiles();
 app.MapRazorPages();
+app.MapReadApi();
 app.MapMcp("/mcp");
 
 app.Run();

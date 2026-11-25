@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "invoice-exceptions": {
+      "type": "http",
+      "url": "http://localhost:5080/mcp"
+    }
+  }
+}
