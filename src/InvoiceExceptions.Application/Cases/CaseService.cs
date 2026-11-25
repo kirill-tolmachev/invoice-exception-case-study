@@ -13,9 +13,10 @@ namespace InvoiceExceptions.Application.Cases;
 /// The use cases of the application. There is exactly one way to change a case - <see cref="Apply"/> - and the
 /// CLI adapter, the MCP tools and the case page all go through it.
 /// <para>
-/// A change is all-or-nothing: it is validated as a whole, becomes one new input revision, and every document of
-/// the case is evaluated against that revision in the same transaction. A stored conclusion can therefore never be
-/// out of date with respect to the stored input, and an invalid input leaves no trace.
+/// A change is all-or-nothing: it is validated as a whole, becomes one new input revision, and every document the
+/// change can affect is re-evaluated against that revision in the same transaction. A stored conclusion can
+/// therefore never be out of date with respect to the stored input, an invalid input leaves no trace, and a
+/// document the change does not touch keeps the conclusion it has - nothing is added to its history.
 /// </para>
 /// </summary>
 public sealed class CaseService(ICaseStore store, TimeProvider clock)
@@ -111,6 +112,9 @@ public sealed class CaseService(ICaseStore store, TimeProvider clock)
         var revision = state.Revision + 1;
         var changes = new List<string>();
 
+        // The documents whose conclusion this change can alter. Everything else keeps the conclusion it already has.
+        var affected = new HashSet<string>(StringComparer.Ordinal);
+
         // 1. Context: a full snapshot replaces the previous one.
         ContextRecord? contextRecord = null;
         if (step.Context is { } context)
@@ -138,6 +142,10 @@ public sealed class CaseService(ICaseStore store, TimeProvider clock)
                 revision, facts.DocumentId, submitted.ContentSha256,
                 Compact(input.GetProperty("document").GetProperty("facts")), notes?.DocumentSourcePath));
             changes.Add(known ? $"new facts for document {facts.DocumentId}" : $"document {facts.DocumentId}");
+
+            // R6 compares a document with those imported before it, so new facts also matter to every later document.
+            var position = state.Documents.FindIndex(d => d.DocumentId == facts.DocumentId);
+            affected.UnionWith(state.Documents.Skip(position).Select(d => d.DocumentId));
         }
 
         if (requireDocument && state.Documents.Count == 0)
@@ -182,6 +190,7 @@ public sealed class CaseService(ICaseStore store, TimeProvider clock)
             state.Proposals.Add(new ProposalState(proposal.ProposalId, proposal.DocumentId, proposal.OrderId, lineMatches, rationale, revision, null));
             proposalRecords.Add(new ProposalRecord(revision, proposal.ProposalId, proposal.DocumentId, proposal.OrderId, lineMatches, rationale));
             changes.Add($"proposal {proposal.ProposalId}");
+            affected.Add(proposal.DocumentId);
         }
 
         // 4. Confirmations: a human confirms one specific, registered proposal.
@@ -213,6 +222,7 @@ public sealed class CaseService(ICaseStore store, TimeProvider clock)
             state.Proposals[index] = state.Proposals[index] with { Confirmation = record };
             confirmationRecords.Add(record);
             changes.Add($"confirmation of {confirmation.ProposalId} by {confirmation.ConfirmedBy}");
+            affected.Add(state.Proposals[index].DocumentId);
         }
 
         if (issues.Count > 0)
@@ -229,39 +239,51 @@ public sealed class CaseService(ICaseStore store, TimeProvider clock)
             documentRecords,
             proposalRecords,
             confirmationRecords,
-            Evaluate(step.CaseId, state, revision)));
+            // A new context touches every document.
+            Evaluate(step.CaseId, state, revision, existing, contextRecord is null ? affected : null)));
 
         return Get(step.CaseId)!;
     }
 
     /// <summary>
-    /// Runs the engine for every document of the case, in import order: R6 lets a document be a duplicate of
-    /// one imported before it, never of one imported after.
+    /// Runs the engine for the affected documents (all of them when <paramref name="affected"/> is null), walking the
+    /// case in import order: R6 lets a document be a duplicate of one imported before it, never of one imported after.
     /// </summary>
-    private static List<EvaluationRecord> Evaluate(string caseId, CaseState state, int revision)
+    private static List<EvaluationRecord> Evaluate(
+        string caseId, CaseState state, int revision, CaseRecord? existing, IReadOnlySet<string>? affected)
     {
         var contextVersion = state.Context!.ContextVersion;
-        var records = new List<EvaluationRecord>(state.Documents.Count);
+
+        // The conclusion each document currently stands on: the assessment of its latest evaluation, if it has one.
+        var standing = existing?.Evaluations
+            .GroupBy(e => e.DocumentId)
+            .ToDictionary(g => g.Key, g => g.Last().Assessment?.AssessmentId) ?? [];
+        var records = new List<EvaluationRecord>();
         var earlier = new List<EarlierDocument>(state.Documents.Count);
 
         foreach (var document in state.Documents)
         {
-            var evaluation = InvoiceEvaluator.Evaluate(new EvaluationInput(
-                state.ContextModel!, document.Model, [.. earlier], state.ProposalsFor(document.DocumentId)));
-            var result = ResultMapper.ToResult(evaluation, document.DocumentId, contextVersion, revision);
+            if (affected is null || affected.Contains(document.DocumentId))
+            {
+                var evaluation = InvoiceEvaluator.Evaluate(new EvaluationInput(
+                    state.ContextModel!, document.Model, [.. earlier], state.ProposalsFor(document.DocumentId)));
+                var result = ResultMapper.ToResult(evaluation, document.DocumentId, contextVersion, revision);
 
-            var assessment = evaluation.Assessment is null
-                ? null
-                : new AssessmentRecord(
-                    AssessmentId(caseId, document.DocumentId, revision),
-                    CoreV1.PolicyVersion,
-                    contextVersion,
-                    result.Decision!,
-                    WireJson.Serialize(result));
+                var assessment = evaluation.Assessment is null
+                    ? null
+                    : new AssessmentRecord(
+                        AssessmentId(caseId, document.DocumentId, revision),
+                        CoreV1.PolicyVersion,
+                        contextVersion,
+                        result.Decision!,
+                        WireJson.Serialize(result));
 
-            records.Add(new EvaluationRecord(
-                revision, document.DocumentId, result.ImportDisposition, result.OriginalDocumentId, result.ExistingAssessmentRef, assessment));
-            earlier.Add(new EarlierDocument(document.Model, assessment?.AssessmentId));
+                records.Add(new EvaluationRecord(
+                    revision, document.DocumentId, result.ImportDisposition, result.OriginalDocumentId, result.ExistingAssessmentRef, assessment));
+                standing[document.DocumentId] = assessment?.AssessmentId;
+            }
+
+            earlier.Add(new EarlierDocument(document.Model, standing.GetValueOrDefault(document.DocumentId)));
         }
 
         return records;
