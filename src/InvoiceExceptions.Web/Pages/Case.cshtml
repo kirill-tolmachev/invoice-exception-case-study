@@ -1,0 +1,583 @@
+@page "/cases/{caseId}"
+@model CaseModel
+@{
+    var view = Model.View;
+}
+
+<nav class="crumbs"><a href="/">All cases</a> / <span>@view.CaseId</span></nav>
+
+<header class="case-header">
+    <h1>Case @view.CaseId</h1>
+    <dl class="meta">
+        <div><dt>Policy</dt><dd>@view.PolicyVersion</dd></div>
+        <div><dt>As of</dt><dd>@view.AsOf</dd></div>
+        <div><dt>Current input revision</dt><dd>@view.InputRevision</dd></div>
+        <div><dt>Context version</dt><dd>@Display.Value(view.ContextVersion, "no context")</dd></div>
+        <div><dt>Documents</dt><dd>@view.Documents.Count</dd></div>
+    </dl>
+</header>
+
+@if (Model.ViewedRevision is { } viewed)
+{
+    <div class="notice notice-history" role="status">
+        <strong>Earlier conclusion, read-only.</strong>
+        You are looking at the conclusion drawn from input revision @viewed. It is not the current one
+        (current input revision: @view.InputRevision).
+        <a href="/cases/@Uri.EscapeDataString(view.CaseId)">Back to the current conclusion</a>
+    </div>
+}
+
+@if (Model.JustConfirmed is { Confirmation: { } done } confirmedProposal)
+{
+    <div class="notice notice-success" role="status">
+        <strong>Confirmed.</strong>
+        Proposal @confirmedProposal.ProposalId was confirmed by @done.ConfirmedBy and recorded as input revision @done.Revision.
+        The conclusion below was recomputed with it.
+    </div>
+}
+
+@if (Model.Errors.Count > 0)
+{
+    <div class="notice notice-error" role="alert">
+        <strong>Nothing was confirmed.</strong>
+        <ul>
+            @foreach (var error in Model.Errors)
+            {
+                <li>@error</li>
+            }
+        </ul>
+    </div>
+}
+
+@if (view.Documents.Count == 0)
+{
+    <p class="empty">No document has been submitted for this case yet. The agent submits the facts it reads from the PDF with <code>submit_document_facts</code>.</p>
+}
+
+@foreach (var panel in Model.Panels)
+{
+    var result = panel.Result;
+    var facts = panel.Facts;
+    var shown = panel.Shown;
+    var caseUrl = "/cases/" + Uri.EscapeDataString(view.CaseId);
+
+    <section class="document" id="@panel.Anchor("top")" aria-labelledby="@panel.Anchor("title")">
+        <h2 id="@panel.Anchor("title")">Document @panel.Document.DocumentId <span class="sub">invoice @facts.Number</span></h2>
+
+        @if (!panel.IsCurrent)
+        {
+            <div class="notice notice-history" role="status">
+                <strong>Not the current conclusion.</strong>
+                This is the conclusion drawn from input revision @shown.InputRevision; the current one is from revision @panel.Document.Current.InputRevision.
+                <a href="@caseUrl#@panel.Anchor("top")">Show the current conclusion</a>
+                @if (panel.FactsNewerThanShown)
+                {
+                    <br><span>The document facts shown are the latest version (revision @panel.Document.FactsRevision), newer than this conclusion.</span>
+                }
+                @if (panel.ContextDiffersFromShown)
+                {
+                    <br><span>Order figures shown come from the latest context @view.ContextVersion; this conclusion was drawn against @result.ContextVersion.</span>
+                }
+            </div>
+        }
+
+        @* ---------- Outcome ---------- *@
+        @if (panel.IsDuplicate)
+        {
+            <div class="outcome outcome-duplicate">
+                <p class="outcome-title">@Display.Badge("Duplicate", "decision-duplicate") Duplicate of @result.OriginalDocumentId</p>
+                <p>This document was already counted as @result.OriginalDocumentId: same business key and the same facts. It gets no new assessment and no checks.</p>
+                <p>Existing assessment: @Display.Value(result.ExistingAssessmentRef, "none recorded")</p>
+                <dl class="meta">
+                    <div><dt>Policy</dt><dd>@result.PolicyVersion</dd></div>
+                    <div><dt>Context version</dt><dd>@result.ContextVersion</dd></div>
+                    <div><dt>Drawn from input revision</dt><dd>@result.InputRevision</dd></div>
+                    <div><dt>Assessment id</dt><dd>@Display.Value(shown.AssessmentId, "none (duplicate)")</dd></div>
+                </dl>
+            </div>
+        }
+        else
+        {
+            <div class="outcome outcome-@Labels.Css(result.Decision ?? "none")">
+                <p class="outcome-title">@Display.Decision(result.Decision) <span>@Labels.DecisionMeaning(result.Decision)</span></p>
+                @if (panel.IsConflict)
+                {
+                    <p class="conflict"><strong>Conflict:</strong> this document has the same business key as @result.OriginalDocumentId but different facts. The original is not overwritten; DOCUMENT_CONFLICT fails.</p>
+                }
+                @{
+                    var failing = panel.FailingChecks.ToList();
+                    var unknown = panel.UnknownChecks.ToList();
+                }
+                @if (failing.Count > 0)
+                {
+                    <p>Failing checks:
+                        @foreach (var check in failing)
+                        {
+                            <span class="chip">@check.Code (@check.ObjectId, @check.Severity)</span>
+                        }
+                    </p>
+                }
+                @if (unknown.Count > 0)
+                {
+                    <p>Undecided checks: @unknown.Count (see the open questions).</p>
+                }
+                <dl class="meta">
+                    <div><dt>Import</dt><dd>@Labels.Disposition(result.ImportDisposition)</dd></div>
+                    <div><dt>Policy</dt><dd>@result.PolicyVersion</dd></div>
+                    <div><dt>Context version</dt><dd>@result.ContextVersion</dd></div>
+                    <div><dt>Drawn from input revision</dt><dd>@result.InputRevision</dd></div>
+                    <div><dt>Assessment id</dt><dd>@Display.Value(shown.AssessmentId, "none")</dd></div>
+                </dl>
+            </div>
+        }
+
+        <nav class="toc" aria-label="Sections">
+            <a href="#@panel.Anchor("facts")">Facts</a>
+            @if (!panel.IsDuplicate)
+            {
+                <a href="#@panel.Anchor("lines")">Lines</a>
+                <a href="#@panel.Anchor("checks")">Checks</a>
+                <a href="#@panel.Anchor("questions")">Questions</a>
+            }
+            <a href="#@panel.Anchor("proposals")">Proposals</a>
+            <a href="#@panel.Anchor("sources")">Sources</a>
+            <a href="#@panel.Anchor("history")">History</a>
+        </nav>
+
+        @* ---------- Facts ---------- *@
+        <h3 id="@panel.Anchor("facts")">Document facts <span class="sub">as printed, extracted by the agent</span></h3>
+        <div class="grid-2">
+            <table class="kv">
+                <tbody>
+                    <tr><th>Number</th><td>@facts.Number</td></tr>
+                    <tr><th>Type</th><td>@facts.Type</td></tr>
+                    <tr><th>Issue date</th><td>@facts.IssueDate</td></tr>
+                    <tr><th>Due date</th><td>@Display.Value(facts.DueDate)</td></tr>
+                    <tr><th>Currency</th><td>@Display.Value(facts.Currency)</td></tr>
+                    <tr><th>PO reference</th><td>@Display.Value(facts.PurchaseOrderReference)</td></tr>
+                    <tr><th>Payment terms</th><td>@Display.Value(facts.PaymentTerms)</td></tr>
+                    <tr><th>IBAN</th><td class="mono">@Display.Value(facts.Bank.Iban)</td></tr>
+                    <tr><th>BIC</th><td class="mono">@Display.Value(facts.Bank.Bic)</td></tr>
+                </tbody>
+            </table>
+            <table class="kv">
+                <tbody>
+                    <tr><th>Supplier</th><td>@Display.Value(facts.Supplier.LegalName)<br><span class="sub">reg. @Display.Value(facts.Supplier.RegistrationId) &middot; @Display.Value(facts.Supplier.Country)</span></td></tr>
+                    <tr><th>Buyer</th><td>@Display.Value(facts.Buyer.LegalName)<br><span class="sub">reg. @Display.Value(facts.Buyer.RegistrationId) &middot; @Display.Value(facts.Buyer.Country)</span></td></tr>
+                    <tr>
+                        <th>Matched order</th>
+                        <td>
+                            @if (result.MatchedOrderId is { } orderId)
+                            {
+                                <span>@orderId</span>
+                                @if (panel.MatchedOrder is { } order)
+                                {
+                                    <span class="sub">ref. @order.Reference &middot; @order.Status &middot; @order.Currency</span>
+                                }
+                                <br>@Display.MatchSource(result.OrderMatchSource)
+                            }
+                            else
+                            {
+                                @Display.Value(null, "not determined")
+                            }
+                        </td>
+                    </tr>
+                    <tr><th>Facts revision</th><td>@panel.Document.FactsRevision (imported at revision @panel.Document.ImportedAtRevision)</td></tr>
+                </tbody>
+            </table>
+        </div>
+        @if (facts.MissingFields.Count > 0)
+        {
+            <h4>Missing fields</h4>
+            <table class="data compact">
+                <thead><tr><th>Field</th><th>Reason</th></tr></thead>
+                <tbody>
+                    @foreach (var missing in facts.MissingFields)
+                    {
+                        <tr><td class="mono">@missing.FieldPath</td><td>@Labels.MissingReason(missing.Reason)</td></tr>
+                    }
+                </tbody>
+            </table>
+        }
+
+        @if (!panel.IsDuplicate)
+        {
+            @* ---------- Lines ---------- *@
+            <h3 id="@panel.Anchor("lines")">Lines and calculations</h3>
+            <p class="hint">Figures marked "vs calculated" or "vs order" differ from what they are compared with. "Not known yet" means the figure cannot be computed until the order or line is determined.</p>
+            <div class="scroll">
+                <table class="data lines">
+                    <thead>
+                        <tr>
+                            <th rowspan="2">Line</th>
+                            <th colspan="6" class="group">Invoice (declared)</th>
+                            <th colspan="2" class="group">Order line</th>
+                            <th colspan="2" class="group">Calculated</th>
+                            <th colspan="5" class="group">Quantities</th>
+                        </tr>
+                        <tr>
+                            <th>Description / SKU</th>
+                            <th class="num">Qty</th>
+                            <th>Unit</th>
+                            <th class="num">Unit price</th>
+                            <th class="num">Net</th>
+                            <th class="num">Tax</th>
+                            <th>Order line / match</th>
+                            <th class="num">Unit price</th>
+                            <th class="num">Net</th>
+                            <th class="num">Tax</th>
+                            <th class="num">Ordered</th>
+                            <th class="num">Received</th>
+                            <th class="num">Prev. invoiced</th>
+                            <th class="num">Available</th>
+                            <th class="num">Remaining</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var row in panel.Lines)
+                        {
+                            var line = row.Fact;
+                            var calc = row.Result;
+                            var ol = row.OrderLine;
+                            <tr data-line="@line.LineId">
+                                <td class="mono">@line.LineId</td>
+                                <td>@line.Description<br><span class="sub">SKU @Display.Value(line.Sku, "none")</span></td>
+                                <td class="num @(Numbers.Exceeds(line.Quantity, calc?.AvailableToInvoice) || Numbers.Exceeds(line.Quantity, calc?.RemainingOnOrder) ? "diff" : "")">
+                                    @line.Quantity
+                                    @if (Numbers.Exceeds(line.Quantity, calc?.AvailableToInvoice))
+                                    {
+                                        <span class="delta">exceeds available</span>
+                                    }
+                                </td>
+                                <td class="@(ol is not null && ol.Unit != line.Unit ? "diff" : "")">@line.Unit @Display.TextDifference(line.Unit, ol?.Unit, "order")</td>
+                                <td class="num @(Numbers.Differ(line.UnitNetPrice, ol?.UnitNetPrice) ? "diff" : "")">@line.UnitNetPrice @Display.Difference(line.UnitNetPrice, ol?.UnitNetPrice, "order")</td>
+                                <td class="num @(Numbers.Differ(line.DeclaredNetAmount, calc?.CalculatedNet) ? "diff" : "")">@line.DeclaredNetAmount @Display.Difference(line.DeclaredNetAmount, calc?.CalculatedNet, "calculated")</td>
+                                <td class="num @(Numbers.Differ(line.DeclaredTaxAmount, calc?.CalculatedTax) ? "diff" : "")">@Display.Value(line.DeclaredTaxAmount, "not declared") @Display.Difference(line.DeclaredTaxAmount, calc?.CalculatedTax, "calculated")<br><span class="sub">rate @line.TaxRate</span></td>
+                                <td>
+                                    @if (ol is not null)
+                                    {
+                                        <span class="mono">@ol.LineId</span> @ol.Description<br>
+                                        <span class="sub">@ol.Unit &middot; SKU @Display.Value(ol.Sku, "none")</span><br>
+                                    }
+                                    else
+                                    {
+                                        @Display.Value(calc?.OrderLineId, "not matched")<br>
+                                    }
+                                    @Display.MatchSource(calc?.MatchSource)
+                                </td>
+                                <td class="num">@Display.Value(ol?.UnitNetPrice)</td>
+                                <td class="num" data-field="calculated-net">@Display.Value(calc?.CalculatedNet)</td>
+                                <td class="num" data-field="calculated-tax">@Display.Value(calc?.CalculatedTax)</td>
+                                <td class="num" data-field="ordered">@Display.Value(calc?.Ordered)</td>
+                                <td class="num" data-field="received">@Display.Value(calc?.Received)</td>
+                                <td class="num" data-field="previously-invoiced">@Display.Value(calc?.PreviouslyInvoiced)</td>
+                                <td class="num" data-field="available">@Display.Value(calc?.AvailableToInvoice)</td>
+                                <td class="num" data-field="remaining">@Display.Value(calc?.RemainingOnOrder)</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+
+            <h4>Totals</h4>
+            <table class="data compact totals">
+                <thead><tr><th></th><th class="num">Declared</th><th class="num">Calculated</th><th>Difference</th></tr></thead>
+                <tbody>
+                    @{
+                        var totals = new[]
+                        {
+                            ("Subtotal", facts.DeclaredSubtotal, result.Totals?.CalculatedSubtotal),
+                            ("Tax total", facts.DeclaredTaxTotal, result.Totals?.CalculatedTaxTotal),
+                            ("Total", facts.DeclaredTotal, result.Totals?.CalculatedTotal),
+                        };
+                    }
+                    @foreach (var (label, declared, calculated) in totals)
+                    {
+                        <tr class="@(Numbers.Differ(declared, calculated) ? "diff" : "")">
+                            <th>@label</th>
+                            <td class="num">@declared</td>
+                            <td class="num">@Display.Value(calculated)</td>
+                            <td>@(Numbers.Differ(declared, calculated) ? Display.Difference(declared, calculated, "calculated") : Display.Badge(calculated is null ? "not compared" : "equal", "status-neutral"))</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+
+            @* ---------- Checks ---------- *@
+            <h3 id="@panel.Anchor("checks")">Checks <span class="sub">@result.Checks.Count in total: @result.Checks.Count(c => c.Status == "pass") pass, @result.Checks.Count(c => c.Status == "fail") fail, @result.Checks.Count(c => c.Status == "unknown") unknown, @result.Checks.Count(c => c.Status == "not_applicable") not applicable</span></h3>
+            @foreach (var group in panel.CheckGroups)
+            {
+                <h4 id="@group.Anchor">@group.Title</h4>
+                <div class="scroll">
+                <table class="data checks">
+                    <thead>
+                        <tr><th>Check</th><th>Status</th><th>Severity</th><th>Depends on</th><th>Explanation</th><th>Actual</th><th>Expected</th><th>Sources</th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var row in group.Checks)
+                        {
+                            var check = row.Check;
+                            <tr class="check-@Labels.Css(check.Status)" data-check="@check.Code" data-object="@check.ObjectId">
+                                <td class="mono">@check.Code<br><span class="sub">@check.ObjectId</span></td>
+                                <td>@Display.Status(check.Status)</td>
+                                <td>@Display.Value(check.Severity, "-")</td>
+                                <td class="mono">@Display.Value(check.DependsOn, "-")</td>
+                                <td class="explanation">@Display.Value(check.Explanation, "-")</td>
+                                <td>
+                                    @if (check.Actual.Count > 0)
+                                    {
+                                        <dl class="pairs">
+                                            @foreach (var (key, value) in check.Actual)
+                                            {
+                                                <dt>@key</dt><dd>@Display.Value(value, "null")</dd>
+                                            }
+                                        </dl>
+                                    }
+                                </td>
+                                <td>
+                                    @if (check.Expected.Count > 0)
+                                    {
+                                        <dl class="pairs">
+                                            @foreach (var (key, value) in check.Expected)
+                                            {
+                                                <dt>@key</dt><dd>@Display.Value(value, "null")</dd>
+                                            }
+                                        </dl>
+                                    }
+                                </td>
+                                <td class="sources">
+                                    @foreach (var source in row.Sources)
+                                    {
+                                        <div class="source">
+                                            <span class="mono">@source.Pointer</span>
+                                            @if (source.Evidence.Count == 0)
+                                            {
+                                                <span class="unknown">@(source.Missing is { } m ? "missing: " + Labels.MissingReason(m.Reason) : "no source recorded")</span>
+                                            }
+                                            @foreach (var evidence in source.Evidence)
+                                            {
+                                                <span class="sub">p. @evidence.Page</span> <q class="excerpt">@evidence.Excerpt</q>
+                                            }
+                                        </div>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+                </div>
+            }
+
+            @* ---------- Questions ---------- *@
+            <h3 id="@panel.Anchor("questions")">Open questions</h3>
+            @if (result.Questions.Count == 0)
+            {
+                <p class="empty">No open questions.</p>
+            }
+            else
+            {
+                <table class="data compact">
+                    <thead><tr><th>Required fact</th><th>About</th><th>Question</th></tr></thead>
+                    <tbody>
+                        @foreach (var question in result.Questions)
+                        {
+                            <tr>
+                                <td class="mono">@question.RequiredFact</td>
+                                <td>@string.Join(", ", question.TargetObjectIds)</td>
+                                <td>@question.Text</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+        }
+
+        @* ---------- Proposals ---------- *@
+        <h3 id="@(panel.Position == 0 ? "proposals" : panel.Anchor("proposals"))">Agent proposals</h3>
+        @if (panel.Proposals.Count == 0)
+        {
+            <p class="empty">The agent has made no proposal for this document.</p>
+        }
+        @foreach (var p in panel.Proposals)
+        {
+            var proposal = p.Proposal;
+            var formId = "confirm-" + panel.Position + "-" + panel.Proposals.ToList().IndexOf(p);
+            <article class="proposal" data-proposal="@proposal.ProposalId">
+                <header>
+                    <h4>Proposal @proposal.ProposalId: order @proposal.OrderId
+                        @if (p.Order is { } order)
+                        {
+                            <span class="sub">ref. @order.Reference</span>
+                        }
+                    </h4>
+                    @if (proposal.Confirmation is { } confirmation)
+                    {
+                        @Display.Badge("Confirmed", "status-pass")
+                        <span>by <strong class="confirmed-by">@confirmation.ConfirmedBy</strong> at input revision @confirmation.Revision</span>
+                    }
+                    else
+                    {
+                        @Display.Badge("Awaiting confirmation", "status-unknown")
+                        <span>registered by the agent at input revision @proposal.RegisteredAtRevision</span>
+                    }
+                </header>
+
+                <table class="data compact">
+                    <thead><tr><th>Invoice line</th><th>Invoice description</th><th>Proposed order line</th><th>Order description</th><th>Unit / price (invoice vs order)</th></tr></thead>
+                    <tbody>
+                        @foreach (var match in p.Matches)
+                        {
+                            <tr>
+                                <td class="mono">@match.Match.DocumentLineId</td>
+                                <td>@Display.Value(match.DocumentLine?.Description, "unknown line")</td>
+                                <td class="mono">@match.Match.OrderLineId</td>
+                                <td>@Display.Value(match.OrderLine?.Description, "unknown order line")</td>
+                                <td>
+                                    @Display.Value(match.DocumentLine?.Unit, "?") / @Display.Value(match.OrderLine?.Unit, "?") &middot;
+                                    @Display.Value(match.DocumentLine?.UnitNetPrice, "?") / @Display.Value(match.OrderLine?.UnitNetPrice, "?")
+                                    @Display.TextDifference(match.DocumentLine?.Unit, match.OrderLine?.Unit, "order unit")
+                                    @Display.Difference(match.DocumentLine?.UnitNetPrice, match.OrderLine?.UnitNetPrice, "order")
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+                <p class="rationale"><strong>Agent's rationale:</strong> @Display.Value(proposal.Rationale, "none given")</p>
+
+                @if (proposal.Confirmation is null)
+                {
+                    <p class="hint">
+                        @if (p.AppliedInShownResult)
+                        {
+                            <span>The checks above are already computed against this proposed order, with its matches counted as unconfirmed agent proposals, so you can see the consequences before you decide.</span>
+                        }
+                        else
+                        {
+                            <span>This proposal is not reflected in the conclusion shown above.</span>
+                        }
+                    </p>
+                    @if (panel.IsCurrent && Model.ViewedRevision is null)
+                    {
+                        <form method="post" asp-page-handler="Confirm" asp-route-caseId="@view.CaseId" class="confirm" id="@formId">
+                            <input type="hidden" name="proposalId" value="@proposal.ProposalId">
+                            <p class="decision-note">
+                                Confirming is <strong>your own decision</strong> as reviewer: you state that the invoice lines belong to the order lines above.
+                                The agent cannot take this step. Your name is recorded with the confirmation, and the case is checked again.
+                            </p>
+                            @if (Model.ErrorProposalId == proposal.ProposalId && Model.Errors.Count > 0)
+                            {
+                                <ul class="field-errors" role="alert">
+                                    @foreach (var error in Model.Errors)
+                                    {
+                                        <li>@error</li>
+                                    }
+                                </ul>
+                            }
+                            <label for="@formId-name">Your name</label>
+                            <input id="@formId-name" type="text" name="confirmedBy" required maxlength="@CaseModel.MaxNameLength" autocomplete="name"
+                                   value="@(Model.ErrorProposalId == proposal.ProposalId ? Model.PostedName : null)">
+                            <button type="submit">Confirm this proposal</button>
+                        </form>
+                    }
+                }
+            </article>
+        }
+
+        @* ---------- Sources ---------- *@
+        <h3 id="@panel.Anchor("sources")">Sources</h3>
+        <table class="kv compact">
+            <tbody>
+                <tr><th>PDF</th><td class="mono">@Display.Value(panel.Document.SourcePath, "path not recorded")</td></tr>
+                <tr><th>Content SHA-256</th><td class="mono hash">@panel.Document.ContentSha256</td></tr>
+            </tbody>
+        </table>
+        <div class="scroll">
+        <table class="data compact evidence">
+            <thead><tr><th>Field</th><th>Extracted value</th><th class="num">Page</th><th>Excerpt as printed</th></tr></thead>
+            <tbody>
+                @foreach (var evidence in facts.Evidence)
+                {
+                    <tr>
+                        <td class="mono">@evidence.FieldPath</td>
+                        <td>@Display.Value(panel.FactValue(evidence.FieldPath), "null")</td>
+                        <td class="num">@evidence.Page</td>
+                        <td><q class="excerpt">@evidence.Excerpt</q></td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+        </div>
+
+        @* ---------- History ---------- *@
+        <h3 id="@panel.Anchor("history")">History</h3>
+        <h4>Conclusions for @panel.Document.DocumentId</h4>
+        <table class="data compact history">
+            <thead><tr><th class="num">Input revision</th><th>Outcome</th><th>Assessment id</th><th></th></tr></thead>
+            <tbody>
+                @foreach (var evaluation in panel.Document.History.Reverse())
+                {
+                    var isShown = evaluation.InputRevision == shown.InputRevision;
+                    var isCurrentEval = evaluation.InputRevision == panel.Document.Current.InputRevision;
+                    <tr class="@(isShown ? "shown" : "")" data-revision="@evaluation.InputRevision">
+                        <td class="num">@evaluation.InputRevision</td>
+                        <td>
+                            @if (evaluation.Result.ImportDisposition == "duplicate")
+                            {
+                                @Display.Badge("Duplicate", "decision-duplicate") <span>of @evaluation.Result.OriginalDocumentId</span>
+                            }
+                            else
+                            {
+                                @Display.Decision(evaluation.Result.Decision)
+                                @if (evaluation.Result.ImportDisposition == "conflict")
+                                {
+                                    <span> (conflict with @evaluation.Result.OriginalDocumentId)</span>
+                                }
+                            }
+                        </td>
+                        <td class="mono">@Display.Value(evaluation.AssessmentId, "none")</td>
+                        <td>
+                            @if (isCurrentEval)
+                            {
+                                <span>current</span>
+                                @if (!isShown)
+                                {
+                                    <a href="@caseUrl#@panel.Anchor("top")">view</a>
+                                }
+                            }
+                            else if (isShown)
+                            {
+                                <span>shown above</span>
+                            }
+                            else
+                            {
+                                <a class="view-revision" href="@caseUrl?revision=@evaluation.InputRevision&amp;document=@Uri.EscapeDataString(panel.Document.DocumentId)">view</a>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </section>
+}
+
+@if (view.Revisions.Count > 0)
+{
+    <section class="revisions">
+        <h2>Input revisions</h2>
+        <table class="data compact">
+            <thead><tr><th class="num">Revision</th><th>Recorded (UTC)</th><th>Channel</th><th>Actor</th><th>Change</th></tr></thead>
+            <tbody>
+                @foreach (var revision in view.Revisions.Reverse())
+                {
+                    <tr>
+                        <td class="num">@revision.Revision</td>
+                        <td>@revision.RecordedAt.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture)</td>
+                        <td>@revision.Channel</td>
+                        <td>@(revision.ActorName is { } actorName ? revision.Actor + ": " + actorName : revision.Actor)</td>
+                        <td>@revision.Summary</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </section>
+}
