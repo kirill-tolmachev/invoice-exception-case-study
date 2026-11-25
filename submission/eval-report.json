@@ -26,7 +26,7 @@
           "actual_outcome": "clear",
           "critical_false_clear": false,
           "escalation": null,
-          "seconds": 0.484,
+          "seconds": 0.515,
           "stderr_tail": ""
         }
       ],
@@ -64,7 +64,7 @@
           "actual_outcome": "blocked",
           "critical_false_clear": false,
           "escalation": null,
-          "seconds": 0.484,
+          "seconds": 0.468,
           "stderr_tail": ""
         }
       ],
@@ -83,7 +83,7 @@
           "actual_outcome": "needs_review",
           "critical_false_clear": false,
           "escalation": null,
-          "seconds": 0.469,
+          "seconds": 0.5,
           "stderr_tail": ""
         }
       ],
@@ -102,7 +102,7 @@
           "actual_outcome": "blocked",
           "critical_false_clear": false,
           "escalation": null,
-          "seconds": 0.469,
+          "seconds": 0.484,
           "stderr_tail": ""
         }
       ],
@@ -121,7 +121,7 @@
           "actual_outcome": "blocked",
           "critical_false_clear": false,
           "escalation": null,
-          "seconds": 0.515,
+          "seconds": 0.5,
           "stderr_tail": ""
         }
       ],
@@ -140,7 +140,7 @@
           "actual_outcome": "blocked",
           "critical_false_clear": false,
           "escalation": null,
-          "seconds": 0.531,
+          "seconds": 0.5,
           "stderr_tail": ""
         }
       ],
@@ -159,7 +159,7 @@
           "actual_outcome": "duplicate",
           "critical_false_clear": false,
           "escalation": null,
-          "seconds": 0.453,
+          "seconds": 0.485,
           "stderr_tail": ""
         }
       ],
@@ -178,7 +178,7 @@
           "actual_outcome": "blocked",
           "critical_false_clear": false,
           "escalation": null,
-          "seconds": 0.469,
+          "seconds": 0.484,
           "stderr_tail": ""
         }
       ],
@@ -197,7 +197,7 @@
           "actual_outcome": "needs_information",
           "critical_false_clear": false,
           "escalation": null,
-          "seconds": 0.469,
+          "seconds": 0.453,
           "stderr_tail": ""
         },
         {
@@ -209,7 +209,7 @@
           "actual_outcome": "needs_review",
           "critical_false_clear": false,
           "escalation": null,
-          "seconds": 0.406,
+          "seconds": 0.469,
           "stderr_tail": ""
         },
         {

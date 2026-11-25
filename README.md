@@ -6,7 +6,7 @@ text follows unchanged [below](#original-assignment).
 | | |
 |---|---|
 | Acceptance runner, open cases | **10/10 cases, 12/12 steps**, 0 false clears, 0 over- or under-escalation — [report](submission/eval-report.txt) |
-| Automated tests (`dotnet test`) | **456**: 273 on rules and invariants, 183 on the application, storage, MCP and the case page |
+| Automated tests (`dotnet test`) | **465**: 278 on rules and invariants, 187 on the application, storage, MCP and the case page |
 | Agent demonstration, cases 004 and 010 | [transcripts with tool-call logs](submission/demo/) |
 | Stack | C# / .NET 10, ASP.NET Core Razor Pages, MCP over Streamable HTTP, SQLite |
 
@@ -108,11 +108,17 @@ flowchart LR
    (document, input revision) with the context and policy version it was drawn from. Every table is append-only, and the
    database enforces it with triggers that abort any `UPDATE` or `DELETE`. A duplicate is recorded as an evaluation with
    no assessment at all.
+   **Registered facts are never replaced either.** Sending a document that is already registered is an import like any
+   other and goes through R6: unchanged, it is a duplicate and nothing is stored; changed, it is a conflicting version
+   stored next to the original, and it blocks. There is no "correct the facts" operation, because that would be the way
+   to turn a `needs_review` into a `clear` after the fact.
 4. **The agent's boundary is structural, not a matter of prompt wording.**
    - The MCP surface has no operation that confirms a proposal or sets an outcome.
    - Independently of that, `Apply` rejects a confirmation that arrives through the agent channel.
    - A confirmation exists only as a form post on the case page (antiforgery-protected) and records the reviewer's name.
    - A proposal may only fill a gap: one that contradicts a deterministic match is rejected at registration.
+   - Facts the agent has registered cannot be changed by the agent (decision 3), and they are only accepted if the
+     document backs them (decision 7).
    - Document text is handed to the agent labelled as data. The facts contract has no field an "approval" could travel
      in; the note in case 004's PDF can at most be copied into `payment_terms`, which no rule reads. A test does exactly that.
 5. **The published schemas are the format contract.** They are embedded unchanged and evaluated as JSON Schema 2020-12;
@@ -121,9 +127,11 @@ flowchart LR
 6. **Decimal arithmetic only.** `System.Decimal` (base 10) in the engine, strings on the wire, `ROUND_HALF_UP` to two
    places. A number that fits the schema pattern but exceeds decimal's range is a validation error, not a crash.
 7. **Facts carry their sources, and the sources are checked.** Facts are stored as registered, with document id, page and
-   verbatim excerpt. The application compares every excerpt with the text layer of the PDF the facts were read from and
-   reports the result to the agent and, per excerpt, to the reviewer. It is a quality signal and never changes a
-   conclusion: the rules work on the facts as registered.
+   verbatim excerpt. When facts arrive together with their document (the MCP channel: the application has the PDF), they
+   are accepted only if every excerpt really is on the page it names, every value has a source and every absent value is
+   declared missing; otherwise the submission is rejected and nothing is stored. The case page shows the same comparison
+   per source to the reviewer. This never changes a conclusion - the rules work on the facts as registered - and the
+   runner channel, which has no PDF, is not subject to it.
 8. **SQLite with hand-written SQL.** Payloads (context, facts, results) are kept verbatim as JSON inside a small
    relational skeleton of revisions, documents, proposals, confirmations, evaluations and assessments. No ORM: the
    adapter starts a process per step, and there is nothing hidden to explain.
@@ -155,11 +163,12 @@ below are mine; each is pinned by a test in `SpecSilentChoicesTests` and each er
 | A PO reference or a supplier registration id that matches more than one entry | Treated as not found. |
 | Several proposals for one document | The latest human-confirmed one selects the order, otherwise the latest pending one. For lines: deterministic, then confirmed, then pending; an order line is never given to two document lines. |
 | R6 with several earlier documents under the same business key | An equal one makes a duplicate; otherwise a conflict with the first match, invoice history before earlier documents of the case. |
-| Facts submitted again for the same `document_id` | A correction: a new revision and a new conclusion, not a duplicate or conflict of itself. |
+| A document that is already registered is sent again (same `document_id`) | R6 applies to it like to any import, and an earlier version of the same document counts as the same invoice even if the number was read differently. Unchanged: `duplicate` of itself, pointing at its standing conclusion, and nothing is stored. Changed: `conflict` with the earlier version, blocked. This is how I read "re-import of the same document gives duplicate, of a modified one - conflict". |
+| The same context snapshot sent again | Not a change of context: no new snapshot and no re-evaluation. |
 | Root unknowns | One question per check instance, e.g. one `goods_receipts` question per line. |
 | A line whose unit differs from the order line | The three dependent checks are `not_applicable`; the quantity figures are still reported, because the policy's `null_when` lists only an unresolved line and unavailable receipts. |
-| `input_revision` | One per accepted change. The CLI applies a whole step as one change. |
-| Which documents a change re-evaluates | A new context: all. A document: itself and those imported after it. A proposal or confirmation: its document. Importing a duplicate therefore adds nothing to the original's history. |
+| `input_revision` | One per accepted change. The CLI applies a whole step as one change and reports the revision the case is at. |
+| Which documents a change re-evaluates | A new context: all. A document, a proposal or a confirmation: that document. Importing a duplicate therefore adds nothing to the original's history. |
 | A step that would leave the case without any document | Rejected as a validation error: the runner contract needs a document to report on. |
 
 ### MCP tools
@@ -170,7 +179,7 @@ below are mine; each is pinned by a test in `SpecSilentChoicesTests` and each er
 | `open_case` | Loads the case context into the application; returns the input documents with PDF path and hash. Idempotent; a changed context becomes a new revision. |
 | `read_document` | The text layer of a PDF, page by page, labelled as untrusted content. |
 | `get_case_context` | The stored context (optionally one section). |
-| `submit_document_facts` | Registers extracted facts. Input schema = the published extraction schema. Returns the import disposition and how well the evidence is backed by the PDF. |
+| `submit_document_facts` | Registers extracted facts, once. Input schema = the published extraction schema. Rejected unless the PDF backs every excerpt. Returns the import disposition (`new`, `duplicate`, `conflict`). |
 | `propose_match` | Registers a proposed order and line matches with a rationale. Decides nothing. |
 | `run_check` | The conclusion for the document at the current input revision: decision, checks with explanations, calculations, questions. |
 | `get_result` | A stored conclusion, current or of an earlier revision. |
@@ -186,14 +195,20 @@ belongs to the current revision.
 | Check | Result |
 |---|---|
 | `tools/run_evals.py` on the open cases | 10/10 cases, 12/12 steps; about 0.5 s per step. [Report](submission/eval-report.txt), [JSON](submission/eval-report.json). |
-| Rules and invariants (273 tests) | Derived from `BUSINESS_RULES.md` and `core-v1.json` in a separate agent session that was not shown the rule code: every rule outcome, rounding ties, tolerance boundaries, and 13 invariants over 1,500 generated inputs (fixed check set, severity and `depends_on` rules, one question per root unknown, determinism, line-order independence). |
-| Application, storage, MCP, page (183 tests) | The dataset replayed in-process against the expected results and the output schema; rejected input leaves no trace; history is never rewritten; new context → new revision and conclusion; duplicate and conflict inside one case; restart; the agent cannot confirm; the MCP flows of cases 004, 010 and 008; the confirmation form with and without antiforgery token; HTML encoding of untrusted text; evidence verification against all 12 PDFs. |
+| Rules and invariants (278 tests) | Derived from `BUSINESS_RULES.md` and `core-v1.json` in a separate agent session that was not shown the rule code: every rule outcome, rounding ties, tolerance boundaries, and 13 invariants over 1,500 generated inputs (fixed check set, severity and `depends_on` rules, one question per root unknown, determinism, line-order independence). |
+| Application, storage, MCP, page (187 tests) | The dataset replayed in-process against the expected results and the output schema; rejected input leaves no trace; history is never rewritten; new context → new revision and conclusion; the same document sent again → duplicate, sent again changed → conflict; duplicate and conflict between documents of one case; restart; the agent cannot confirm and cannot replace facts; unbacked excerpts are rejected; the MCP flows of cases 004, 010 and 008; the confirmation form with and without antiforgery token; HTML encoding of untrusted text; evidence verification against all 12 PDFs. |
 | Case page in a browser | Case 010: proposal shown with its consequences, confirmed by name, conclusion recomputed to `clear`, earlier conclusions still viewable. |
 | Agent end to end (cases 004 and 010) | See [submission/demo](submission/demo/): transcript, tool-call log, client and model, and a comparison of what the application stored with the reference extraction and expected result. |
 
-One finding of that testing is worth naming: my first version re-evaluated every document of a case on every change, so
-importing a duplicate added a fresh conclusion to the original and pointed at it. A requirement-derived test caught it
-("no new conclusion is created, history does not change"); the fix is the "which documents a change re-evaluates" rule above.
+Two findings of that testing are worth naming, because both changed the design:
+
+- My first version re-evaluated every document of a case on every change, so importing a duplicate added a fresh
+  conclusion to the original and pointed at it. A requirement-derived test caught it ("no new conclusion is created,
+  history does not change"); the fix is the "which documents a change re-evaluates" rule above.
+- My first version also treated facts sent again for a registered document as a correction that replaced them. Checking
+  it against the review list ("re-import of the same document gives duplicate, of a modified one - conflict") showed it
+  was both a wrong reading and a hole: an agent could have rewritten a price after seeing `needs_review`. Facts are now
+  immutable, and what the agent submits has to be backed by the PDF before it is accepted.
 
 ## Simplifications and known limitations
 
@@ -202,10 +217,15 @@ importing a duplicate added a fresh conclusion to the original and pointed at it
   CLI adapter is outside what an application can defend; in production the agent runs in a separate trust zone.
 - **No retries or idempotency keys, no concurrency handling beyond optimistic revision numbers.** Of two simultaneous
   writers one wins and the other gets a conflict. Calling a mutating tool twice creates two revisions.
-- **The human interface confirms; it does not reject or comment.** A reviewer who disagrees leaves the proposal unconfirmed.
+- **The human interface confirms; it does not reject, comment or resolve.** A reviewer who disagrees leaves the proposal
+  unconfirmed. There is also no way yet to resolve a conflict between two readings of one document (to void one of
+  them): a wrong first reading by the agent stays on record and the document stays blocked. That is deliberate for the
+  agent, and a missing operation for the reviewer.
 - **Earlier conclusions are shown next to the latest facts and context.** Every version is stored, but the read model
   exposes only the latest facts and context; the page warns when they are newer than the conclusion being viewed.
-- **Evidence verification needs a text layer** (no OCR) and is advisory.
+- **Evidence verification needs a text layer** (no OCR). A page without one is reported as "not checked" and does not
+  block a submission. An excerpt is matched as text on its page, ignoring whitespace; a short excerpt such as a quantity
+  can therefore be "found" in more than one place.
 - **The context version of a case opened through MCP is derived from the content of its context files** (`ctx-…`),
   because those files carry no version; the runner supplies its own (`CTX-…`).
 - **Conclusions are bound to `policy_version`, not to a build of the engine.** A changed rule should ship as a new policy

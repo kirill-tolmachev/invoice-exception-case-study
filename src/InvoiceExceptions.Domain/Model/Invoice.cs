@@ -46,7 +46,12 @@ public sealed record MatchProposal(
 public sealed record LineMatch(string DocumentLineId, string OrderLineId);
 
 /// <summary>A document imported into the same case before the one being evaluated (R6 looks at these too).</summary>
-public sealed record EarlierDocument(InvoiceDocument Document, string? AssessmentRef);
+/// <param name="AssessmentRef">Reference to the conclusion that stands for that document, if it has one.</param>
+/// <param name="SameDocument">
+/// True when this is an earlier registered version of the very document being evaluated. Registered facts are never
+/// replaced: a later reading of the same document is the same invoice by definition, whatever number it now carries.
+/// </param>
+public sealed record EarlierDocument(InvoiceDocument Document, string? AssessmentRef, bool SameDocument = false);
 
 /// <summary>
 /// Everything the engine is allowed to look at. Same input, same result.

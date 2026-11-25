@@ -40,8 +40,9 @@ public sealed record ReviewNote(string FieldPath, string Message);
 /// Looks at how well a set of facts is backed by its document: is every excerpt really on the page it names,
 /// does every stated value have a source, is every absent value declared as missing.
 /// <para>
-/// This is a quality signal for the agent and for the person reviewing the case. It never changes a conclusion:
-/// the rules work on the facts as registered, and whether those were read correctly is shown next to them.
+/// It never changes a conclusion: the rules work on the facts as registered. It is used in two places - at the
+/// door, where facts that arrive together with their document are rejected unless the document backs them, and on
+/// the case page, where the reviewer sees for every source whether it was found in the PDF.
 /// </para>
 /// </summary>
 public static class FactsReviewer
@@ -53,11 +54,7 @@ public static class FactsReviewer
     {
         var searchable = pages?.ToDictionary(p => p.Page, p => Squeeze(p.Text));
         var evidence = facts.Evidence
-            .Select(e => new EvidenceCheck(e.FieldPath, e.Page, e.Excerpt, searchable is null
-                ? EvidenceStatus.NotChecked
-                : searchable.TryGetValue(e.Page, out var text) && text.Contains(Squeeze(e.Excerpt), StringComparison.Ordinal)
-                    ? EvidenceStatus.Found
-                    : EvidenceStatus.NotFound))
+            .Select(e => new EvidenceCheck(e.FieldPath, e.Page, e.Excerpt, Status(e, searchable)))
             .ToList();
 
         var notes = new List<ReviewNote>();
@@ -92,6 +89,28 @@ public static class FactsReviewer
         }
 
         return new FactsReview(evidence, notes);
+    }
+
+    private static EvidenceStatus Status(EvidenceDto evidence, Dictionary<int, string>? searchable)
+    {
+        if (searchable is null)
+        {
+            return EvidenceStatus.NotChecked;
+        }
+
+        if (!searchable.TryGetValue(evidence.Page, out var text))
+        {
+            // The document has no such page.
+            return EvidenceStatus.NotFound;
+        }
+
+        // A page without a text layer (a scan) can neither confirm nor refute an excerpt.
+        if (text.Length == 0)
+        {
+            return EvidenceStatus.NotChecked;
+        }
+
+        return text.Contains(Squeeze(evidence.Excerpt), StringComparison.Ordinal) ? EvidenceStatus.Found : EvidenceStatus.NotFound;
     }
 
     private static void Flatten(JsonElement element, string path, Dictionary<string, JsonElement> values)

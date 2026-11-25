@@ -1,14 +1,13 @@
 using InvoiceExceptions.Application.Contracts;
 using InvoiceExceptions.Application.Mapping;
 using InvoiceExceptions.Application.Storage;
-using InvoiceExceptions.Application.Validation;
 using InvoiceExceptions.Domain.Model;
 
 namespace InvoiceExceptions.Application.Cases;
 
 /// <summary>
 /// The input of a case at its latest revision, rebuilt from the append-only record: the current context,
-/// the latest facts of every document (in import order) and all proposals with their confirmations.
+/// every registered version of every document (in import order) and all proposals with their confirmations.
 /// A working copy - <see cref="CaseService"/> applies a change to it and then stores the difference.
 /// </summary>
 internal sealed class CaseState
@@ -16,8 +15,19 @@ internal sealed class CaseState
     public int Revision { get; private init; }
     public ContextDto? Context { get; private set; }
     public ContextSnapshot? ContextModel { get; private set; }
-    public List<DocumentState> Documents { get; } = [];
+
+    /// <summary>
+    /// Every registered version of every document, in the order they were imported. Registered facts are never
+    /// replaced: a different reading of a document that is already there becomes a further version next to it.
+    /// </summary>
+    public List<DocumentState> Imports { get; } = [];
+
     public List<ProposalState> Proposals { get; } = [];
+
+    /// <summary>The current (latest registered) version of each document, in order of first import.</summary>
+    public IReadOnlyList<DocumentState> Documents => [.. Imports.GroupBy(i => i.DocumentId).Select(versions => versions.Last())];
+
+    public DocumentState? Document(string documentId) => Imports.LastOrDefault(i => i.DocumentId == documentId);
 
     public static CaseState Empty() => new();
 
@@ -36,9 +46,8 @@ internal sealed class CaseState
         foreach (var version in record.Documents)
         {
             var facts = WireJson.Deserialize<FactsDto>(version.FactsJson);
-            state.PutDocument(new DocumentState(
-                version.DocumentId, version.Revision, version.Revision, version.ContentSha256, facts,
-                mapper.Document(facts, string.Empty), version.SourcePath));
+            state.Imports.Add(new DocumentState(
+                version.DocumentId, version.Revision, version.ContentSha256, facts, mapper.Document(facts, string.Empty), version.SourcePath));
         }
 
         var confirmations = record.Confirmations.ToDictionary(c => c.ProposalId);
@@ -58,20 +67,6 @@ internal sealed class CaseState
         ContextModel = model;
     }
 
-    /// <summary>Adds a document, or replaces the facts of one that is already there while keeping its place in the import order.</summary>
-    public void PutDocument(DocumentState document)
-    {
-        var index = Documents.FindIndex(d => d.DocumentId == document.DocumentId);
-        if (index < 0)
-        {
-            Documents.Add(document);
-        }
-        else
-        {
-            Documents[index] = document with { ImportedAtRevision = Documents[index].ImportedAtRevision };
-        }
-    }
-
     public IReadOnlyList<MatchProposal> ProposalsFor(string documentId) =>
     [
         .. Proposals.Where(p => p.DocumentId == documentId).Select(p =>
@@ -79,10 +74,11 @@ internal sealed class CaseState
     ];
 }
 
+/// <summary>One registered version of a document's facts.</summary>
+/// <param name="Revision">The input revision at which this version was registered.</param>
 internal sealed record DocumentState(
     string DocumentId,
-    int ImportedAtRevision,
-    int FactsRevision,
+    int Revision,
     string ContentSha256,
     FactsDto Facts,
     InvoiceDocument Model,

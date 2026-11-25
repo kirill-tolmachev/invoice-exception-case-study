@@ -102,7 +102,14 @@
                 <p class="outcome-title">@Display.Decision(result.Decision) <span>@Labels.DecisionMeaning(result.Decision)</span></p>
                 @if (panel.IsConflict)
                 {
-                    <p class="conflict"><strong>Conflict:</strong> this document has the same business key as @result.OriginalDocumentId but different facts. The original is not overwritten; DOCUMENT_CONFLICT fails.</p>
+                    @if (result.OriginalDocumentId == panel.Document.DocumentId)
+                    {
+                        <p class="conflict"><strong>Conflict:</strong> this document was registered before with different facts. Registered facts are not replaced: the earlier version and its conclusion are kept (see the history), and DOCUMENT_CONFLICT fails until a person has resolved which reading is right.</p>
+                    }
+                    else
+                    {
+                        <p class="conflict"><strong>Conflict:</strong> this document has the same business key as @result.OriginalDocumentId but different facts. The original is not overwritten; DOCUMENT_CONFLICT fails.</p>
+                    }
                 }
                 @{
                     var failing = panel.FailingChecks.ToList();

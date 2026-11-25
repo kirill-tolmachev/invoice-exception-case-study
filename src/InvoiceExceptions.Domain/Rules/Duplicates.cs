@@ -54,38 +54,45 @@ internal static class Duplicates
             ["document_number"] = key.DocumentNumber,
         };
 
-        var sameKey = new List<(string DocumentId, ComparableFacts Facts, string? AssessmentRef)>();
+        var facts = ComparableFacts.Of(document);
+        var sameInvoice = new List<(string DocumentId, bool SameFacts, string? AssessmentRef, bool SameDocument)>();
         foreach (var counted in context.History.Where(h => BusinessKey.Of(h) == key))
         {
-            sameKey.Add((counted.DocumentId, counted.Facts, null));
+            sameInvoice.Add((counted.DocumentId, counted.Facts.SameAs(facts), null, false));
         }
 
         foreach (var earlier in earlierDocuments)
         {
-            if (KeyOf(earlier.Document, context) == key)
+            var sameKey = KeyOf(earlier.Document, context) == key;
+            if (sameKey || earlier.SameDocument)
             {
-                sameKey.Add((earlier.Document.DocumentId, ComparableFacts.Of(earlier.Document), earlier.AssessmentRef));
+                // An earlier version of this very document is the same invoice even if its key has since been read
+                // differently; in that case the key itself is one of the facts that changed.
+                var sameFacts = sameKey && ComparableFacts.Of(earlier.Document).SameAs(facts);
+                sameInvoice.Add((earlier.Document.DocumentId, sameFacts, earlier.AssessmentRef, earlier.SameDocument));
             }
         }
 
-        if (sameKey.Count == 0)
+        if (sameInvoice.Count == 0)
         {
             return New(key, CheckResult.Pass(code, id, "No earlier document with this supplier, buyer and number.") with { Actual = actual, EvidenceRefs = refs });
         }
 
-        var facts = ComparableFacts.Of(document);
-        foreach (var known in sameKey)
+        foreach (var known in sameInvoice)
         {
-            if (known.Facts.SameAs(facts))
+            if (known.SameFacts)
             {
                 return new ConflictOutcome(ImportDisposition.Duplicate, known.DocumentId, known.AssessmentRef, key, null);
             }
         }
 
-        var original = sameKey[0];
+        var original = sameInvoice[0];
         var expected = new Dictionary<string, string?> { ["original_document_id"] = original.DocumentId };
+        var what = original.SameDocument
+            ? $"An earlier registered version of document {original.DocumentId} states different facts"
+            : $"Document {original.DocumentId} has the same supplier, buyer and number but different amounts, dates, lines or bank details";
         return new ConflictOutcome(ImportDisposition.Conflict, original.DocumentId, null, key,
-            CheckResult.Fail(code, id, $"Document {original.DocumentId} has the same supplier, buyer and number but different amounts, dates, lines or bank details. The original is kept as it is.")
+            CheckResult.Fail(code, id, what + ". The original is kept as it is.")
                 with { Actual = actual, Expected = expected, EvidenceRefs = refs });
     }
 

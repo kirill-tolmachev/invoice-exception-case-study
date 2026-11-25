@@ -119,7 +119,35 @@ public sealed class CaseHistoryTests
     // ---- 5. corrected facts ----------------------------------------------------------------------------------------
 
     [Fact]
-    public void Corrected_facts_for_the_same_document_are_a_new_revision_not_a_duplicate_or_conflict_of_itself()
+    public void The_same_document_sent_again_unchanged_is_a_duplicate_and_changes_nothing()
+    {
+        using var workspace = new CaseWorkspace();
+        var first = workspace.RunOk("case-001", 1);
+        var before = Json(workspace.Store.Load("case-001")!.Documents);
+        var conclusionsBefore = Json(workspace.Store.Load("case-001")!.Evaluations);
+
+        // Exactly the same step again: same context, same document.
+        var again = Dataset.Step("case-001", 1);
+        again["step"] = 2;
+        var output = workspace.RunOk(again);
+
+        Assert.Equal("duplicate", output.GetProperty("import_disposition").GetString());
+        Assert.Equal("DOC-001", output.GetProperty("original_document_id").GetString());
+        Assert.Equal("case-001/DOC-001/r1", output.GetProperty("existing_assessment_ref").GetString());
+        Assert.Equal(JsonValueKind.Null, output.GetProperty("decision").ValueKind);
+        Assert.Empty(output.GetProperty("checks").EnumerateArray());
+        Assert.True(output.GetProperty("input_revision").GetInt32() > first.GetProperty("input_revision").GetInt32());
+
+        // "No new conclusion is created, history does not change": nothing about the document was stored.
+        var stored = workspace.Store.Load("case-001")!;
+        Assert.Equal(before, Json(stored.Documents));
+        Assert.Equal(conclusionsBefore, Json(stored.Evaluations));
+        Assert.Single(stored.Contexts);
+        Assert.Equal("clear", workspace.Cases.Get("case-001")!.Document("DOC-001")!.Current.Result.Decision);
+    }
+
+    [Fact]
+    public void The_same_document_sent_again_with_different_facts_is_a_conflict_and_the_original_is_kept()
     {
         using var workspace = new CaseWorkspace();
         workspace.RunOk("case-001", 1);
@@ -132,27 +160,59 @@ public sealed class CaseHistoryTests
 
         var output = workspace.RunOk(step);
 
+        // Registered facts are never replaced: a different reading of the same document is a conflict, not a correction.
         Assert.Equal(2, output.GetProperty("input_revision").GetInt32());
         Assert.Equal("DOC-001", output.GetProperty("document_id").GetString());
-        Assert.Equal("new", output.GetProperty("import_disposition").GetString());
-        Assert.Equal(JsonValueKind.Null, output.GetProperty("original_document_id").ValueKind);
+        Assert.Equal("conflict", output.GetProperty("import_disposition").GetString());
+        Assert.Equal("DOC-001", output.GetProperty("original_document_id").GetString());
         var conflict = output.GetProperty("checks").EnumerateArray().Single(c => c.GetProperty("code").GetString() == "DOCUMENT_CONFLICT");
-        Assert.Equal("pass", conflict.GetProperty("status").GetString());
-        Assert.Equal("clear", output.GetProperty("decision").GetString());
+        Assert.Equal("fail", conflict.GetProperty("status").GetString());
+        Assert.Equal("blocked", conflict.GetProperty("severity").GetString());
+        Assert.Equal("blocked", output.GetProperty("decision").GetString());
 
+        // The original version and its conclusion are still there, untouched.
         var document = workspace.Cases.Get("case-001")!.Document("DOC-001")!;
         Assert.Single(workspace.Cases.Get("case-001")!.Documents);
-        Assert.Equal("2026-11-30", document.Facts.DueDate);
-        Assert.Equal(2, document.FactsRevision);
         Assert.Equal(2, document.History.Count);
         Assert.Equal(firstConclusion, Json(document.History[0]));
-        Assert.NotEqual(document.History[0].AssessmentId, document.History[1].AssessmentId);
+        Assert.Equal("clear", document.History[0].Result.Decision);
 
-        // Both versions of the facts are kept.
         var stored = workspace.Store.Load("case-001")!.Documents.Where(d => d.DocumentId == "DOC-001").ToList();
         Assert.Equal([1, 2], stored.Select(d => d.Revision));
         Assert.Contains("2026-11-25", stored[0].FactsJson, StringComparison.Ordinal);
         Assert.Contains("2026-11-30", stored[1].FactsJson, StringComparison.Ordinal);
+
+        // The conflict does not go away by itself: a later change re-evaluates the new version against the original.
+        var third = Dataset.Step("case-001", 1);
+        third.Remove("document");
+        third["step"] = 3;
+        third["context"]!["context_version"] = "CTX-001-v2";
+        Assert.Equal("conflict", workspace.RunOk(third).GetProperty("import_disposition").GetString());
+    }
+
+    [Fact]
+    public void A_reading_that_changes_the_invoice_number_of_a_registered_document_is_still_a_conflict()
+    {
+        using var workspace = new CaseWorkspace();
+        workspace.RunOk("case-004", 1);
+
+        // Another number would be another business key - but it is the same document, so it cannot become a new invoice.
+        var step = Dataset.Step("case-004", 1);
+        step.Remove("context");
+        step["step"] = 2;
+        step["document"]!["facts"]!["number"] = "INV-2026-4104-A";
+        step["document"]!["facts"]!["lines"]![0]!["unit_net_price"] = "12.50";
+        step["document"]!["facts"]!["lines"]![0]!["declared_net_amount"] = "1000.00";
+        step["document"]!["facts"]!["lines"]![0]!["declared_tax_amount"] = "200.00";
+        step["document"]!["facts"]!["declared_subtotal"] = "1115.20";
+        step["document"]!["facts"]!["declared_tax_total"] = "223.04";
+        step["document"]!["facts"]!["declared_total"] = "1338.24";
+
+        var output = workspace.RunOk(step);
+
+        Assert.Equal("conflict", output.GetProperty("import_disposition").GetString());
+        Assert.Equal("DOC-004", output.GetProperty("original_document_id").GetString());
+        Assert.Equal("blocked", output.GetProperty("decision").GetString());
     }
 
     // ---- 6. duplicate and conflict inside one case ---------------------------------------------------------------------

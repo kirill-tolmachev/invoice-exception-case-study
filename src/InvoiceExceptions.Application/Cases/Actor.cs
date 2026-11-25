@@ -1,3 +1,6 @@
+using InvoiceExceptions.Application.Contracts;
+using InvoiceExceptions.Application.Documents;
+
 namespace InvoiceExceptions.Application.Cases;
 
 /// <summary>
@@ -21,6 +24,20 @@ public sealed record Actor(string Channel, string Kind, string? Name)
 /// <summary>Side information about a change that is not part of the step-input contract.</summary>
 /// <param name="DocumentSourcePath">Where the submitted document's PDF was read from.</param>
 /// <param name="ProposalRationales">The agent's explanation per proposal id, shown to the human who has to confirm.</param>
+/// <param name="DocumentText">
+/// The text of the submitted document, page by page, when the caller has the document itself. If it is given, the
+/// facts must be backed by it: every excerpt has to be on the page it names and every value needs a source,
+/// otherwise the change is rejected. Facts cannot be replaced once registered, so this is checked at the door.
+/// </param>
 public sealed record ChangeNotes(
     string? DocumentSourcePath = null,
-    IReadOnlyDictionary<string, string>? ProposalRationales = null);
+    IReadOnlyDictionary<string, string>? ProposalRationales = null,
+    IReadOnlyList<PageText>? DocumentText = null);
+
+/// <summary>What a change led to.</summary>
+/// <param name="View">The case after the change.</param>
+/// <param name="ResentDuplicate">
+/// Set when the change re-sent a document that is already registered without changing anything R6 compares.
+/// The answer to such an import is "duplicate"; nothing about the document was stored and its conclusion stands.
+/// </param>
+public sealed record ChangeOutcome(CaseView View, ResultDto? ResentDuplicate);
