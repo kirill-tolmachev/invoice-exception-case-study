@@ -152,18 +152,18 @@
                     <tr><th>Number</th><td>@facts.Number</td></tr>
                     <tr><th>Type</th><td>@facts.Type</td></tr>
                     <tr><th>Issue date</th><td>@facts.IssueDate</td></tr>
-                    <tr><th>Due date</th><td>@Display.Value(facts.DueDate)</td></tr>
-                    <tr><th>Currency</th><td>@Display.Value(facts.Currency)</td></tr>
-                    <tr><th>PO reference</th><td>@Display.Value(facts.PurchaseOrderReference)</td></tr>
-                    <tr><th>Payment terms</th><td>@Display.Value(facts.PaymentTerms)</td></tr>
-                    <tr><th>IBAN</th><td class="mono">@Display.Value(facts.Bank.Iban)</td></tr>
-                    <tr><th>BIC</th><td class="mono">@Display.Value(facts.Bank.Bic)</td></tr>
+                    <tr><th>Due date</th><td>@Display.Value(facts.DueDate, "not in the document")</td></tr>
+                    <tr><th>Currency</th><td>@Display.Value(facts.Currency, "not in the document")</td></tr>
+                    <tr><th>PO reference</th><td>@Display.Value(facts.PurchaseOrderReference, "not in the document")</td></tr>
+                    <tr><th>Payment terms</th><td>@Display.Value(facts.PaymentTerms, "not in the document")</td></tr>
+                    <tr><th>IBAN</th><td class="mono">@Display.Value(facts.Bank.Iban, "not in the document")</td></tr>
+                    <tr><th>BIC</th><td class="mono">@Display.Value(facts.Bank.Bic, "not in the document")</td></tr>
                 </tbody>
             </table>
             <table class="kv">
                 <tbody>
-                    <tr><th>Supplier</th><td>@Display.Value(facts.Supplier.LegalName)<br><span class="sub">reg. @Display.Value(facts.Supplier.RegistrationId) &middot; @Display.Value(facts.Supplier.Country)</span></td></tr>
-                    <tr><th>Buyer</th><td>@Display.Value(facts.Buyer.LegalName)<br><span class="sub">reg. @Display.Value(facts.Buyer.RegistrationId) &middot; @Display.Value(facts.Buyer.Country)</span></td></tr>
+                    <tr><th>Supplier</th><td>@Display.Value(facts.Supplier.LegalName, "not in the document")<br><span class="sub">reg. @Display.Value(facts.Supplier.RegistrationId, "not in the document") &middot; @Display.Value(facts.Supplier.Country, "not in the document")</span></td></tr>
+                    <tr><th>Buyer</th><td>@Display.Value(facts.Buyer.LegalName, "not in the document")<br><span class="sub">reg. @Display.Value(facts.Buyer.RegistrationId, "not in the document") &middot; @Display.Value(facts.Buyer.Country, "not in the document")</span></td></tr>
                     <tr>
                         <th>Matched order</th>
                         <td>
@@ -491,17 +491,41 @@
                 <tr><th>Content SHA-256</th><td class="mono hash">@panel.Document.ContentSha256</td></tr>
             </tbody>
         </table>
+        @if (!panel.EvidenceWasChecked)
+        {
+            <p class="hint">The excerpts below could not be compared with the PDF: the file the facts were read from is not available here.</p>
+        }
+        else if (panel.Review.NotFound == 0)
+        {
+            <p class="hint">All @panel.Review.Evidence.Count excerpts were found on the stated page of the PDF.</p>
+        }
+        else
+        {
+            <p class="notice notice-error"><strong>@panel.Review.NotFound of @panel.Review.Evidence.Count excerpts were not found on the stated page of the PDF.</strong> The facts they support may have been read incorrectly. The checks use the facts as registered.</p>
+        }
+        @if (panel.Review.Notes.Count > 0)
+        {
+            <ul class="notes">
+                @foreach (var note in panel.Review.Notes)
+                {
+                    <li><span class="mono">@note.FieldPath</span>: @note.Message</li>
+                }
+            </ul>
+        }
         <div class="scroll">
         <table class="data compact evidence">
-            <thead><tr><th>Field</th><th>Extracted value</th><th class="num">Page</th><th>Excerpt as printed</th></tr></thead>
+            <thead><tr><th>Field</th><th>Extracted value</th><th class="num">Page</th><th>Excerpt as printed</th><th>In the PDF</th></tr></thead>
             <tbody>
-                @foreach (var evidence in facts.Evidence)
+                @for (var e = 0; e < facts.Evidence.Count; e++)
                 {
+                    var evidence = facts.Evidence[e];
+                    var status = panel.Review.Evidence[e].Status;
                     <tr>
                         <td class="mono">@evidence.FieldPath</td>
                         <td>@Display.Value(panel.FactValue(evidence.FieldPath), "null")</td>
                         <td class="num">@evidence.Page</td>
                         <td><q class="excerpt">@evidence.Excerpt</q></td>
+                        <td>@Display.Evidence(status)</td>
                     </tr>
                 }
             </tbody>

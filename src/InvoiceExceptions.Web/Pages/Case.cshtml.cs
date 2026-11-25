@@ -1,4 +1,7 @@
+using System.Security.Cryptography;
 using InvoiceExceptions.Application.Cases;
+using InvoiceExceptions.Application.Catalog;
+using InvoiceExceptions.Application.Documents;
 using InvoiceExceptions.Application.Validation;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
@@ -10,7 +13,7 @@ namespace InvoiceExceptions.Web.Pages;
 /// Reading is GET (optionally an earlier conclusion via <c>?revision=N&amp;document=...</c>); confirming is a POST
 /// protected by the default antiforgery check, answered with a redirect back to the page (Post/Redirect/Get).
 /// </summary>
-public sealed class CaseModel(CaseService cases) : PageModel
+public sealed class CaseModel(CaseService cases, ICaseCatalog catalog, IDocumentTextSource documents) : PageModel
 {
     public const int MaxNameLength = 100;
 
@@ -55,7 +58,7 @@ public sealed class CaseModel(CaseService cases) : PageModel
                     : null;
                 if (shown is not null)
                 {
-                    panels.Add(new DocumentPanel(view, doc, shown, i));
+                    panels.Add(new DocumentPanel(view, doc, shown, i, Review(view, doc)));
                 }
             }
 
@@ -69,7 +72,7 @@ public sealed class CaseModel(CaseService cases) : PageModel
         }
         else
         {
-            Panels = [.. view.Documents.Select((doc, i) => new DocumentPanel(view, doc, doc.Current, i))];
+            Panels = [.. view.Documents.Select((doc, i) => new DocumentPanel(view, doc, doc.Current, i, Review(view, doc)))];
         }
 
         if (confirmed is not null)
@@ -81,6 +84,19 @@ public sealed class CaseModel(CaseService cases) : PageModel
 
         ViewData["Title"] = view.CaseId;
         return Page();
+    }
+
+    /// <summary>
+    /// Compares the registered evidence with the text of the PDF. Only the very file the facts were read from can
+    /// vouch for them, so the file is used only while its content hash still equals the one stored with the facts.
+    /// </summary>
+    private FactsReview Review(CaseView view, DocumentView document)
+    {
+        var path = document.SourcePath
+            ?? catalog.Find(view.CaseId)?.Documents.FirstOrDefault(d => d.DocumentId == document.DocumentId)?.Path;
+        var sameFile = path is not null && System.IO.File.Exists(path)
+            && Convert.ToHexStringLower(SHA256.HashData(System.IO.File.ReadAllBytes(path))) == document.ContentSha256;
+        return FactsReviewer.Review(document.Facts, sameFile ? documents.ReadPages(path!) : null);
     }
 
     public IActionResult OnPostConfirm(string caseId, string? proposalId, string? confirmedBy)

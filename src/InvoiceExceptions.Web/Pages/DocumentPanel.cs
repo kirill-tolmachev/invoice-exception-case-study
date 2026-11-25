@@ -1,6 +1,7 @@
 using System.Text.Json;
 using InvoiceExceptions.Application.Cases;
 using InvoiceExceptions.Application.Contracts;
+using InvoiceExceptions.Application.Documents;
 
 namespace InvoiceExceptions.Web.Pages;
 
@@ -13,8 +14,9 @@ public sealed class DocumentPanel
     private readonly JsonElement _factsJson;
     private readonly Dictionary<string, OrderLineDto> _orderLines;
 
-    public DocumentPanel(CaseView view, DocumentView document, EvaluationView shown, int position)
+    public DocumentPanel(CaseView view, DocumentView document, EvaluationView shown, int position, FactsReview review)
     {
+        Review = review;
         Position = position;
         Case = view;
         Document = document;
@@ -39,6 +41,11 @@ public sealed class DocumentPanel
     }
 
     public CaseView Case { get; }
+
+    /// <summary>How well the facts are backed by the PDF: one entry per evidence item, in the order of the facts.</summary>
+    public FactsReview Review { get; }
+
+    public bool EvidenceWasChecked => Review.Evidence.Any(e => e.Status != EvidenceStatus.NotChecked);
 
     /// <summary>Index of the document within the case, used for anchors: document ids come from the document.</summary>
     public int Position { get; }

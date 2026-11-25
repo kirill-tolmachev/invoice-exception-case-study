@@ -287,3 +287,7 @@ button:hover { filter: brightness(1.1); }
     .page { padding: 0.6rem; }
     form.confirm { grid-template-columns: 1fr; }
 }
+
+/* Provenance notes under the sources heading */
+.notes { margin: 0.3rem 0 0.6rem 1.1rem; padding: 0; color: var(--muted); }
+.notes li { margin: 0.1rem 0; }

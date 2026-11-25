@@ -1,4 +1,5 @@
 using System.Globalization;
+using InvoiceExceptions.Application.Documents;
 using Microsoft.AspNetCore.Html;
 
 namespace InvoiceExceptions.Web.Pages;
@@ -23,6 +24,14 @@ public static class Display
 
     public static IHtmlContent Decision(string? decision) =>
         decision is null ? Badge("no decision", "decision-none") : Badge(Labels.Decision(decision), "decision-" + Labels.Css(decision));
+
+    /// <summary>Whether an evidence excerpt was found on the stated page of the PDF.</summary>
+    public static IHtmlContent Evidence(EvidenceStatus status) => status switch
+    {
+        EvidenceStatus.Found => Badge("found on page", "status-pass"),
+        EvidenceStatus.NotFound => Badge("not found on page", "status-fail"),
+        _ => Tag("span", "unknown", "not checked"),
+    };
 
     public static IHtmlContent MatchSource(string? source) =>
         source is null ? Tag("span", "unknown", "not matched") : Badge(Labels.MatchSource(source), "source-" + Labels.Css(source));
