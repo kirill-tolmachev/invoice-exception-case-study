@@ -7,7 +7,8 @@ Prerequisites: the application is running (dotnet run --project src/InvoiceExcep
   python scripts/run_agent_demo.py --case 010      # pauses until a person confirms the proposal on the case page
 
 For each case it writes into submission/demo/:
-  case-NNN*.jsonl        the raw stream-json log of every agent run (all tool calls and replies)
+  case-NNN*.jsonl        the stream-json log of every agent run: every message, tool call and reply, with the
+                         client's local environment details (paths, installed plugins, usage) removed
   case-NNN-transcript.md a readable transcript with a tool-call log, client and model
   case-NNN-check.md      what the application stored versus the dataset's reference files
 
@@ -35,6 +36,28 @@ PROMPTS = {
 }
 
 
+def sanitized(event):
+    """Keeps what documents the run - who said what, which tool was called with what, what came back, which client and
+    model - and drops what merely describes the machine it ran on: local paths, installed plugins and skills, hooks,
+    token usage and cost. Returns None for events that carry nothing else."""
+    kind = event.get("type")
+    if kind == "system" and event.get("subtype") == "init":
+        keep = ("type", "subtype", "session_id", "model", "claude_code_version", "mcp_servers", "tools", "permissionMode")
+        return {key: event[key] for key in keep if key in event}
+    if kind in ("assistant", "user"):
+        message = event.get("message", {})
+        content = message.get("content")
+        if isinstance(content, list):
+            content = [block for block in content if block.get("type") in ("text", "tool_use", "tool_result")]
+            if not content:
+                return None
+        return {"type": kind, "message": {"role": message.get("role", kind), "content": content}}
+    if kind == "result":
+        keep = ("type", "subtype", "is_error", "session_id", "num_turns", "duration_ms", "stop_reason", "result")
+        return {key: event[key] for key in keep if key in event}
+    return None
+
+
 def run_agent(prompt, log_path, model, resume=None):
     claude = shutil.which("claude")
     if claude is None:
@@ -52,9 +75,19 @@ def run_agent(prompt, log_path, model, resume=None):
         command += ["--resume", resume]
 
     # A neutral working directory: the agent session has no project files around it.
-    with tempfile.TemporaryDirectory(prefix="agent-demo-") as cwd, open(log_path, "w", encoding="utf-8") as log:
-        completed = subprocess.run(command, cwd=cwd, stdout=log, stderr=subprocess.PIPE, text=True, encoding="utf-8")
-    events = [json.loads(line) for line in Path(log_path).read_text(encoding="utf-8").splitlines() if line.strip()]
+    with tempfile.TemporaryDirectory(prefix="agent-demo-") as cwd:
+        completed = subprocess.run(command, cwd=cwd, capture_output=True, text=True, encoding="utf-8")
+    # The log starts with the prompt: the stream itself does not repeat what the user asked.
+    events = [{"type": "user", "message": {"role": "user", "content": prompt}}]
+    for line in completed.stdout.splitlines():
+        if line.strip():
+            try:
+                event = sanitized(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+            if event is not None:
+                events.append(event)
+    Path(log_path).write_text("".join(json.dumps(e, ensure_ascii=False) + "\n" for e in events), encoding="utf-8")
     final = next((e for e in reversed(events) if e.get("type") == "result"), {})
     init = next((e for e in events if e.get("type") == "system" and e.get("subtype") == "init"), {})
     failed = completed.returncode != 0 or final.get("is_error") or not any(

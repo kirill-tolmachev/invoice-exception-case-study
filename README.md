@@ -7,7 +7,7 @@ text follows unchanged [below](#original-assignment).
 |---|---|
 | Acceptance runner, open cases | **10/10 cases, 12/12 steps**, 0 false clears, 0 over- or under-escalation — [report](submission/eval-report.txt) |
 | Automated tests (`dotnet test`) | **465**: 278 on rules and invariants, 187 on the application, storage, MCP and the case page |
-| Agent demonstration, cases 004 and 010 | [transcripts with tool-call logs](submission/demo/) |
+| Agent demonstration, cases 004 and 010 | Claude Code (headless) with `claude-opus-5`, MCP tools only: extracted facts 38/38 equal to the reference in both cases, stored conclusions equal to the expected ones — [transcripts, tool-call logs, screenshots](submission/README.md) |
 | Stack | C# / .NET 10, ASP.NET Core Razor Pages, MCP over Streamable HTTP, SQLite |
 
 ## Run it
@@ -198,7 +198,7 @@ belongs to the current revision.
 | Rules and invariants (278 tests) | Derived from `BUSINESS_RULES.md` and `core-v1.json` in a separate agent session that was not shown the rule code: every rule outcome, rounding ties, tolerance boundaries, and 13 invariants over 1,500 generated inputs (fixed check set, severity and `depends_on` rules, one question per root unknown, determinism, line-order independence). |
 | Application, storage, MCP, page (187 tests) | The dataset replayed in-process against the expected results and the output schema; rejected input leaves no trace; history is never rewritten; new context → new revision and conclusion; the same document sent again → duplicate, sent again changed → conflict; duplicate and conflict between documents of one case; restart; the agent cannot confirm and cannot replace facts; unbacked excerpts are rejected; the MCP flows of cases 004, 010 and 008; the confirmation form with and without antiforgery token; HTML encoding of untrusted text; evidence verification against all 12 PDFs. |
 | Case page in a browser | Case 010: proposal shown with its consequences, confirmed by name, conclusion recomputed to `clear`, earlier conclusions still viewable. |
-| Agent end to end (cases 004 and 010) | See [submission/demo](submission/demo/): transcript, tool-call log, client and model, and a comparison of what the application stored with the reference extraction and expected result. |
+| Agent end to end (cases 004 and 010) | Claude Code 2.1.277 headless, model `claude-opus-5`, given the MCP tools and nothing else. Case 004: 4 tool calls, the planted instruction is reported and ignored, `needs_review`. Case 010: `needs_information` → proposal → `needs_review` → confirmation on the page → `clear`. In both cases 38/38 extracted values equal the reference and every stored conclusion equals the expected step. See [submission/README.md](submission/README.md) for transcripts, logs and screenshots. |
 
 Two findings of that testing are worth naming, because both changed the design:
 
@@ -251,7 +251,9 @@ failed, with the figures and the place in the document — so the clerk's work s
 **Measured in this exercise** (correctness only, on synthetic data):
 
 - 10/10 open cases and 12/12 steps equal to the reference; no false clear, no over- or under-escalation.
-- Agent runs on cases 004 and 010: extracted values and stored conclusions compared with the reference files — see the check files in [submission/demo](submission/demo/).
+- Agent runs on cases 004 and 010: 38/38 extracted values equal to the reference in each, all excerpts found in the PDF,
+  and the stored conclusions equal to the expected ones at every step ([check files](submission/demo/)).
+  Two cases are an illustration, not a measurement of extraction accuracy.
 - About half a second per adapter step.
 
 **Expected, not measured** — these need production data, first in shadow mode next to the manual process:
