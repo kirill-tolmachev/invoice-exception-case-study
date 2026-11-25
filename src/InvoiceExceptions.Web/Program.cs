@@ -1,7 +1,9 @@
 using InvoiceExceptions.Application.Cases;
 using InvoiceExceptions.Application.Catalog;
+using InvoiceExceptions.Application.Documents;
 using InvoiceExceptions.Application.Storage;
 using InvoiceExceptions.Infrastructure.Catalog;
+using InvoiceExceptions.Infrastructure.Documents;
 using InvoiceExceptions.Infrastructure.Storage;
 using InvoiceExceptions.Web;
 using InvoiceExceptions.Web.Mcp;
@@ -17,6 +19,7 @@ builder.Services.AddSingleton(settings);
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<ICaseStore>(_ => SqliteCaseStore.InDirectory(settings.DataDirectory));
 builder.Services.AddSingleton<ICaseCatalog>(_ => new DatasetCaseCatalog(settings.DatasetDirectory));
+builder.Services.AddSingleton<IDocumentTextSource, PdfTextSource>();
 builder.Services.AddSingleton<CaseService>();
 
 builder.Services.AddRazorPages();
