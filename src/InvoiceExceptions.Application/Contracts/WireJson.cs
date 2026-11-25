@@ -1,5 +1,6 @@
 using System.Text.Encodings.Web;
 using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
 
 namespace InvoiceExceptions.Application.Contracts;
 
@@ -10,6 +11,7 @@ public static class WireJson
     {
         PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+        TypeInfoResolver = new DefaultJsonTypeInfoResolver(),
     };
 
     public static readonly JsonSerializerOptions Indented = new(Options) { WriteIndented = true };

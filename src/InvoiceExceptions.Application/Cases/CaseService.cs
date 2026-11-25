@@ -26,8 +26,44 @@ public sealed class CaseService(ICaseStore store, TimeProvider clock)
 
     public CaseView? Get(string caseId) => store.Load(caseId) is { } record ? CaseViewBuilder.Build(record) : null;
 
-    /// <summary>The next free proposal id of a case, for channels that do not bring their own.</summary>
-    public string NextProposalId(string caseId)
+    // The four things that can happen to a case, one at a time. Each of them only phrases its request in the
+    // step-input contract and hands it to Apply; none has logic of its own.
+
+    /// <summary>Creates the case with its context, or replaces the context of an existing case with a new snapshot.</summary>
+    public CaseView SetContext(string caseId, string asOf, JsonElement context, Actor actor) =>
+        Apply(Change(caseId, asOf, new { context }), actor);
+
+    /// <summary>Registers the facts of a document: a new document, or a corrected version of one already imported.</summary>
+    public CaseView SubmitDocument(string caseId, string contentSha256, JsonElement facts, Actor actor, string? sourcePath = null) =>
+        Apply(
+            Change(caseId, AsOf(caseId), new { document = new { content_sha256 = contentSha256, facts } }),
+            actor,
+            new ChangeNotes(DocumentSourcePath: sourcePath));
+
+    /// <summary>Registers an agent's proposal. It decides nothing until a human confirms it.</summary>
+    /// <returns>The id given to the proposal.</returns>
+    public string RegisterProposal(
+        string caseId, string documentId, string orderId, IReadOnlyList<LineMatchDto> lineMatches, string? rationale, Actor actor)
+    {
+        var proposalId = NextProposalId(caseId);
+        var proposal = new ProposalInputDto(proposalId, "agent", documentId, orderId, lineMatches);
+        Apply(
+            Change(caseId, AsOf(caseId), new { proposals = new[] { proposal } }),
+            actor,
+            rationale is null ? null : new ChangeNotes(ProposalRationales: new Dictionary<string, string> { [proposalId] = rationale }));
+        return proposalId;
+    }
+
+    /// <summary>Records that a person confirmed one specific proposal. Reachable from the case page only.</summary>
+    public CaseView ConfirmProposal(string caseId, string proposalId, string confirmedBy) =>
+        Apply(
+            Change(caseId, AsOf(caseId), new { confirmations = new[] { new ConfirmationInputDto(proposalId, "human", confirmedBy) } }),
+            Actor.Human(confirmedBy));
+
+    private string AsOf(string caseId) =>
+        store.Load(caseId)?.Header.AsOf ?? throw new CaseNotFoundException(caseId);
+
+    private string NextProposalId(string caseId)
     {
         var taken = store.Load(caseId)?.Proposals.Select(p => p.ProposalId).ToHashSet() ?? [];
         for (var number = taken.Count + 1; ; number++)
@@ -38,6 +74,18 @@ public sealed class CaseService(ICaseStore store, TimeProvider clock)
                 return candidate;
             }
         }
+    }
+
+    private static JsonElement Change(string caseId, string asOf, object part)
+    {
+        var envelope = JsonSerializer.SerializeToNode(
+            new { schema_version = "1.0", case_id = caseId, step = 1, as_of = asOf, policy_ref = CoreV1.PolicyVersion })!.AsObject();
+        foreach (var (name, value) in JsonSerializer.SerializeToNode(part, WireJson.Options)!.AsObject().ToList())
+        {
+            envelope[name] = value?.DeepClone();
+        }
+
+        return JsonSerializer.SerializeToElement(envelope);
     }
 
     /// <summary>

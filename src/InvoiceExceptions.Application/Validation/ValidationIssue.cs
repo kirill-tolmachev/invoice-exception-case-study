@@ -16,3 +16,9 @@ public sealed class InputValidationException(IReadOnlyList<ValidationIssue> issu
 
     public static InputValidationException Single(string path, string message) => new([new ValidationIssue(path, message)]);
 }
+
+/// <summary>The request names a case that does not exist.</summary>
+public sealed class CaseNotFoundException(string caseId) : Exception($"There is no case '{caseId}'.")
+{
+    public string CaseId { get; } = caseId;
+}

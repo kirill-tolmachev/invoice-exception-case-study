@@ -1,0 +1,3 @@
+# The invoice PDFs are mostly plain text, so Git would otherwise convert their line endings on Windows
+# checkouts (core.autocrlf), which corrupts the xref table and changes the content hash.
+*.pdf binary
